@@ -127,7 +127,7 @@ namespace GridBanner
 
                 var abd = new NativeMethods.APPBARDATA
                 {
-                    cbSize = Marshal.SizeOf<NativeMethods.APPBARDATA>(),
+                    cbSize = (uint)Marshal.SizeOf<NativeMethods.APPBARDATA>(),
                     hWnd = hwnd,
                     uCallbackMessage = (uint)_appBarCallbackMessage
                 };
@@ -154,7 +154,7 @@ namespace GridBanner
 
             var abd = new NativeMethods.APPBARDATA
             {
-                cbSize = Marshal.SizeOf<NativeMethods.APPBARDATA>(),
+                cbSize = (uint)Marshal.SizeOf<NativeMethods.APPBARDATA>(),
                 hWnd = hwnd
             };
 
@@ -181,29 +181,51 @@ namespace GridBanner
 
             var bounds = _screen.Bounds;
 
-            var abd = new NativeMethods.APPBARDATA
+            try
             {
-                cbSize = Marshal.SizeOf<NativeMethods.APPBARDATA>(),
-                hWnd = hwnd,
-                uEdge = NativeMethods.ABE_TOP,
-                rc = new NativeMethods.RECT
+                var abd = new NativeMethods.APPBARDATA
                 {
-                    left = bounds.Left,
-                    top = bounds.Top,
-                    right = bounds.Right,
-                    bottom = bounds.Top + h
+                    cbSize = (uint)Marshal.SizeOf<NativeMethods.APPBARDATA>(),
+                    hWnd = hwnd,
+                    uEdge = NativeMethods.ABE_TOP,
+                    rc = new NativeMethods.RECT
+                    {
+                        left = bounds.Left,
+                        top = bounds.Top,
+                        right = bounds.Right,
+                        bottom = bounds.Top + h
+                    }
+                };
+
+                // Let Windows adjust for other appbars, then lock our desired height.
+                NativeMethods.SHAppBarMessage(NativeMethods.ABM_QUERYPOS, ref abd);
+                abd.rc.bottom = abd.rc.top + h;
+                NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
+
+                // Defensive: prevent invalid negative sizes from ever reaching WPF.
+                var w = abd.rc.right - abd.rc.left;
+                var hh = abd.rc.bottom - abd.rc.top;
+                if (w <= 0 || hh <= 0)
+                {
+                    // Fallback to the raw screen bounds if the shell returned a bad rect.
+                    abd.rc.left = bounds.Left;
+                    abd.rc.top = bounds.Top;
+                    abd.rc.right = bounds.Right;
+                    abd.rc.bottom = bounds.Top + h;
+                    w = abd.rc.right - abd.rc.left;
+                    hh = abd.rc.bottom - abd.rc.top;
                 }
-            };
 
-            // Let Windows adjust for other appbars, then lock our desired height.
-            NativeMethods.SHAppBarMessage(NativeMethods.ABM_QUERYPOS, ref abd);
-            abd.rc.bottom = abd.rc.top + h;
-            NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
-
-            Left = abd.rc.left;
-            Top = abd.rc.top;
-            Width = abd.rc.right - abd.rc.left;
-            Height = abd.rc.bottom - abd.rc.top;
+                Left = abd.rc.left;
+                Top = abd.rc.top;
+                Width = Math.Max(1, w);
+                Height = Math.Max(1, hh);
+            }
+            catch (Exception ex)
+            {
+                // Never crash on session lock/unlock / work-area changes.
+                System.Diagnostics.Debug.WriteLine($"AppBar position error: {ex.Message}");
+            }
         }
     }
 
@@ -247,12 +269,12 @@ namespace GridBanner
         [StructLayout(LayoutKind.Sequential)]
         public struct APPBARDATA
         {
-            public int cbSize;
+            public uint cbSize;
             public IntPtr hWnd;
             public uint uCallbackMessage;
             public uint uEdge;
             public RECT rc;
-            public int lParam;
+            public IntPtr lParam;
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Diagnostics;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Forms;
@@ -17,10 +18,23 @@ namespace GridBanner
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "userdata", "gridbanner", "gridbanner.log");
 
+        private bool _isSessionLocked;
+
         public MainWindow()
         {
             InitializeComponent();
             LogMessage("MainWindow constructor called");
+
+            // Handle lock/unlock + display changes (monitors / work area can change during these events)
+            try
+            {
+                SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
+                SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
+            }
+            catch
+            {
+                // ignore
+            }
 
             // MainWindow is created as Hidden in XAML, so Loaded may never fire.
             // Kick off banner creation via the Dispatcher so it always runs.
@@ -55,6 +69,12 @@ namespace GridBanner
             try
             {
                 LogMessage("MainWindow_Loaded started");
+
+                if (_isSessionLocked)
+                {
+                    LogMessage("Session is locked; skipping banner creation.");
+                    return;
+                }
                 
                 // Load configuration (this will create default if needed)
                 LogMessage("Loading configuration...");
@@ -123,54 +143,15 @@ namespace GridBanner
                     LogMessage($"Compliance: enabled={complianceEnabled}, no command; using compliance_status={complianceStatusFallback}");
                 }
 
-                // Create banner window for each screen
-                var screens = Screen.AllScreens;
-                LogMessage($"Detected {screens?.Length ?? 0} screen(s)");
-                
-                if (screens != null && screens.Length > 0)
-                {
-                    int screenIndex = 0;
-                    foreach (var screen in screens)
-                    {
-                        try
-                        {
-                            LogMessage($"Creating banner window for screen {screenIndex}: Bounds={screen.Bounds}, Primary={screen.Primary}");
-                            
-                            var bannerWindow = new BannerWindow
-                            {
-                                Username = username,
-                                OrgName = orgName,
-                                ClassificationLevel = classificationLevel,
-                                BackgroundColor = new SolidColorBrush(backgroundColor),
-                                ForegroundColor = new SolidColorBrush(foregroundColor),
-                                BannerHeight = bannerHeight,
-                                ComplianceEnabled = complianceEnabled,
-                                ComplianceStatus = complianceStatus
-                            };
-
-                            bannerWindow.SetScreen(screen);
-                            LogMessage($"Banner window {screenIndex} configured: Left={bannerWindow.Left}, Top={bannerWindow.Top}, Width={bannerWindow.Width}, Height={bannerWindow.Height}, Topmost={bannerWindow.Topmost}");
-                            
-                            bannerWindow.Show();
-                            bannerWindow.Activate();
-                            bannerWindow.Focus();
-                            LogMessage($"Banner window {screenIndex} shown and activated");
-                            
-                            _bannerWindows.Add(bannerWindow);
-                            screenIndex++;
-                        }
-                        catch (Exception ex)
-                        {
-                            LogMessage($"Error creating banner window for screen {screenIndex}: {ex.Message}\n{ex.StackTrace}");
-                        }
-                    }
-                    
-                    LogMessage($"Successfully created {_bannerWindows.Count} banner window(s)");
-                }
-                else
-                {
-                    LogMessage("ERROR: No screens detected!");
-                }
+                CreateOrRefreshBanners(
+                    username,
+                    orgName,
+                    classificationLevel,
+                    backgroundColor,
+                    foregroundColor,
+                    bannerHeight,
+                    complianceEnabled,
+                    complianceStatus);
 
                 // Hide the main window
                 Hide();
@@ -183,6 +164,112 @@ namespace GridBanner
                     "GridBanner Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 Close();
             }
+        }
+
+        private void CreateOrRefreshBanners(
+            string username,
+            string orgName,
+            string classificationLevel,
+            System.Windows.Media.Color backgroundColor,
+            System.Windows.Media.Color foregroundColor,
+            double bannerHeight,
+            bool complianceEnabled,
+            int complianceStatus)
+        {
+            CloseAllBanners();
+
+            var screens = Screen.AllScreens;
+            LogMessage($"Detected {screens?.Length ?? 0} screen(s)");
+
+            if (screens == null || screens.Length == 0)
+            {
+                LogMessage("ERROR: No screens detected!");
+                return;
+            }
+
+            int screenIndex = 0;
+            foreach (var screen in screens)
+            {
+                try
+                {
+                    LogMessage($"Creating banner window for screen {screenIndex}: Bounds={screen.Bounds}, Primary={screen.Primary}");
+
+                    var bannerWindow = new BannerWindow
+                    {
+                        Username = username,
+                        OrgName = orgName,
+                        ClassificationLevel = classificationLevel,
+                        BackgroundColor = new SolidColorBrush(backgroundColor),
+                        ForegroundColor = new SolidColorBrush(foregroundColor),
+                        BannerHeight = bannerHeight,
+                        ComplianceEnabled = complianceEnabled,
+                        ComplianceStatus = complianceStatus
+                    };
+
+                    bannerWindow.SetScreen(screen);
+                    LogMessage($"Banner window {screenIndex} configured: Left={bannerWindow.Left}, Top={bannerWindow.Top}, Width={bannerWindow.Width}, Height={bannerWindow.Height}, Topmost={bannerWindow.Topmost}");
+
+                    bannerWindow.Show();
+                    _bannerWindows.Add(bannerWindow);
+                    screenIndex++;
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Error creating banner window for screen {screenIndex}: {ex.Message}\n{ex.StackTrace}");
+                }
+            }
+
+            LogMessage($"Successfully created {_bannerWindows.Count} banner window(s)");
+        }
+
+        private void CloseAllBanners()
+        {
+            foreach (var w in _bannerWindows.ToList())
+            {
+                try
+                {
+                    w.Close();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+            _bannerWindows.Clear();
+        }
+
+        private void SystemEvents_SessionSwitch(object? sender, SessionSwitchEventArgs e)
+        {
+            // Runs on a system thread; marshal to UI thread
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (e.Reason == SessionSwitchReason.SessionLock)
+                {
+                    _isSessionLocked = true;
+                    LogMessage("Session locked: closing banners / unregistering appbars.");
+                    CloseAllBanners();
+                }
+                else if (e.Reason == SessionSwitchReason.SessionUnlock)
+                {
+                    _isSessionLocked = false;
+                    LogMessage("Session unlocked: recreating banners.");
+                    MainWindow_Loaded(this, new RoutedEventArgs());
+                }
+            }));
+        }
+
+        private void SystemEvents_DisplaySettingsChanged(object? sender, EventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isSessionLocked)
+                {
+                    return;
+                }
+
+                LogMessage("Display settings changed: refreshing banners.");
+                MainWindow_Loaded(this, new RoutedEventArgs());
+            }));
         }
 
         private System.Windows.Media.Color ParseColor(string colorString)
@@ -273,9 +360,16 @@ namespace GridBanner
         protected override void OnClosed(EventArgs e)
         {
             // Close all banner windows when main window closes
-            foreach (var window in _bannerWindows)
+            CloseAllBanners();
+
+            try
             {
-                window.Close();
+                SystemEvents.SessionSwitch -= SystemEvents_SessionSwitch;
+                SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
+            }
+            catch
+            {
+                // ignore
             }
             base.OnClosed(e);
         }
