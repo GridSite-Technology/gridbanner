@@ -20,7 +20,7 @@ namespace GridBanner
         public bool ComplianceEnabled { get; set; } = true;
         public int ComplianceStatus { get; set; } = 1; // 1=compliant, 0=non-compliant
         public Visibility ComplianceVisibility => ComplianceEnabled ? Visibility.Visible : Visibility.Collapsed;
-        public string ComplianceText => ComplianceStatus == 1 ? "DEVICE COMPLIANT" : "DEVICE NON-COMPLIANT";
+        public string ComplianceText => ComplianceStatus == 1 ? "DEVICE COMPLIANT" : "DEVICE NOT COMPLIANT";
         public Brush ComplianceBackground => ComplianceStatus == 1 ? Brushes.ForestGreen : Brushes.Firebrick;
 
         private Screen? _screen;

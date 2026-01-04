@@ -76,8 +76,9 @@ org_name =
 ; Device compliance badge (right side)
 ; compliance_check_enabled: 1=show badge, 0=hide badge
 compliance_check_enabled = 1
-; compliance_status: 1=compliant (green), 0=non-compliant (red)
-compliance_status = 1
+; compliance_status: 1=compliant (green), 0=NOT compliant (red)
+; Note: GridBanner is conservative — it only shows COMPLIANT if a real check proves it.
+compliance_status = 0
 ; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.
 ; Example: compliance_check_command = powershell.exe -NoProfile -Command "exit 0"
 compliance_check_command =
@@ -91,8 +92,8 @@ compliance_check_command =
 - **banner_height**: Banner height in pixels (default: `30`)
 - **org_name**: Optional override for organization name (default: auto-detected)
 - **compliance_check_enabled**: `1` to show the badge, `0` to hide it (default: `1`)
-- **compliance_status**: `1` for compliant (green) / `0` for non-compliant (red) (default: `1`)
-- **compliance_check_command**: Optional command to run at startup; exit code `0` is treated as compliant (default: empty)
+- **compliance_status**: `1` for compliant (green) / `0` for NOT compliant (red) (default: `0`)
+- **compliance_check_command**: Optional command to run at startup; exit code `0` is treated as compliant. If the command is missing/fails/times out, GridBanner treats the device as **NOT compliant** (default: empty)
 
 ## Usage
 

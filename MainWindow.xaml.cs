@@ -89,28 +89,38 @@ namespace GridBanner
 
                 // Compliance badge settings
                 var complianceEnabled = ParseInt(config.GetValueOrDefault("compliance_check_enabled", "1"), 1) == 1;
-                var complianceStatusFallback = ParseInt(config.GetValueOrDefault("compliance_status", "1"), 1);
+
+                // Conservative: if we cannot positively prove compliant, show NOT compliant.
+                var complianceStatusFallback = ParseInt(config.GetValueOrDefault("compliance_status", "0"), 0);
                 complianceStatusFallback = complianceStatusFallback == 1 ? 1 : 0;
 
                 var complianceCommand = config.GetValueOrDefault("compliance_check_command", string.Empty).Trim();
-                var complianceStatus = complianceStatusFallback;
+                var complianceStatus = 0;
 
-                if (complianceEnabled && !string.IsNullOrWhiteSpace(complianceCommand))
+                if (!complianceEnabled)
+                {
+                    LogMessage("Compliance badge disabled (compliance_check_enabled=0)");
+                }
+                else if (!string.IsNullOrWhiteSpace(complianceCommand))
                 {
                     LogMessage("Running compliance_check_command...");
                     if (TryRunComplianceCommand(complianceCommand, out var commandCompliant, out var details))
                     {
                         complianceStatus = commandCompliant ? 1 : 0;
-                        LogMessage($"Compliance command result: {(complianceStatus == 1 ? "COMPLIANT" : "NON-COMPLIANT")} ({details})");
+                        LogMessage($"Compliance command result: {(complianceStatus == 1 ? "COMPLIANT" : "NOT COMPLIANT")} ({details})");
                     }
                     else
                     {
-                        LogMessage($"Compliance command failed; using compliance_status fallback={complianceStatusFallback}. Details: {details}");
+                        // If the check can't run reliably, treat as NOT compliant
+                        complianceStatus = 0;
+                        LogMessage($"Compliance command failed; treating as NOT COMPLIANT. Details: {details}");
                     }
                 }
                 else
                 {
-                    LogMessage($"Compliance: enabled={complianceEnabled}, using compliance_status={complianceStatusFallback} (no command)");
+                    // No check configured: use fallback, but default is NOT compliant.
+                    complianceStatus = complianceStatusFallback;
+                    LogMessage($"Compliance: enabled={complianceEnabled}, no command; using compliance_status={complianceStatusFallback}");
                 }
 
                 // Create banner window for each screen

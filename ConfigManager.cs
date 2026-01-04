@@ -27,7 +27,8 @@ namespace GridBanner
 
             // Device compliance indicator (optional check)
             { "compliance_check_enabled", "1" },
-            { "compliance_status", "1" },
+            // Conservative default: NOT compliant unless proven compliant by an actual check
+            { "compliance_status", "0" },
             { "compliance_check_command", "" }
         };
 
@@ -132,7 +133,7 @@ namespace GridBanner
                 "; Device compliance badge (right side)",
                 "; compliance_check_enabled: 1=show badge (and optionally run compliance_check_command), 0=hide badge",
                 $"compliance_check_enabled = {DefaultConfig["compliance_check_enabled"]}",
-                "; compliance_status: 1=compliant (green), 0=non-compliant (red) (used when no command is set or command fails)",
+                "; compliance_status: 1=compliant (green), 0=NOT compliant (red). Used only if no command is set or command fails.",
                 $"compliance_status = {DefaultConfig["compliance_status"]}",
                 "; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.",
                 "; Example: compliance_check_command = powershell.exe -NoProfile -Command \"exit 0\"",
