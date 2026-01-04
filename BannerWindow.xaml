@@ -6,11 +6,12 @@
         Topmost="True"
         ShowInTaskbar="False"
         ShowActivated="False">
-    <!-- Single-row banner: username (left) | classification (center) | org (right) -->
+    <!-- Single-row banner: username (left) | classification (center) | org (right) | compliance badge (far right) -->
     <Grid Margin="16,0" VerticalAlignment="Center">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
@@ -34,7 +35,21 @@
                    Foreground="{Binding ForegroundColor}"
                    FontSize="17"
                    FontWeight="Bold"
-                   VerticalAlignment="Center"/>
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,0"/>
+
+        <Border Grid.Column="3"
+                Background="{Binding ComplianceBackground}"
+                CornerRadius="4"
+                Padding="10,4"
+                VerticalAlignment="Center"
+                Visibility="{Binding ComplianceVisibility}">
+            <TextBlock Text="{Binding ComplianceText}"
+                       Foreground="#FFFFFF"
+                       FontSize="12"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+        </Border>
     </Grid>
 </Window>
 

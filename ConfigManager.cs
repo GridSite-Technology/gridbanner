@@ -23,7 +23,12 @@ namespace GridBanner
             { "background_color", "#FFA500" },  // Orange
             { "foreground_color", "#FFFFFF" },  // White
             { "classification_level", "UNSPECIFIED CLASSIFICATION" },
-            { "banner_height", "30" }
+            { "banner_height", "30" },
+
+            // Device compliance indicator (optional check)
+            { "compliance_check_enabled", "1" },
+            { "compliance_status", "1" },
+            { "compliance_check_command", "" }
         };
 
         /// <summary>
@@ -122,7 +127,16 @@ namespace GridBanner
                 $"classification_level = {DefaultConfig["classification_level"]}",
                 $"banner_height = {DefaultConfig["banner_height"]}",
                 "; Optional override if Azure AD reports a short tenant name (e.g. set to \"PrecisionX Technology LLC\")",
-                "org_name ="
+                "org_name =",
+                string.Empty,
+                "; Device compliance badge (right side)",
+                "; compliance_check_enabled: 1=show badge (and optionally run compliance_check_command), 0=hide badge",
+                $"compliance_check_enabled = {DefaultConfig["compliance_check_enabled"]}",
+                "; compliance_status: 1=compliant (green), 0=non-compliant (red) (used when no command is set or command fails)",
+                $"compliance_status = {DefaultConfig["compliance_status"]}",
+                "; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.",
+                "; Example: compliance_check_command = powershell.exe -NoProfile -Command \"exit 0\"",
+                $"compliance_check_command = {DefaultConfig["compliance_check_command"]}"
             };
 
             File.WriteAllLines(path, lines);
@@ -173,7 +187,11 @@ namespace GridBanner
                 "background_color",
                 "foreground_color",
                 "classification_level",
-                "banner_height"
+                "banner_height",
+                "org_name",
+                "compliance_check_enabled",
+                "compliance_status",
+                "compliance_check_command"
             };
             var hasUnknownKeys = cfg.Keys.Any(k => !allowedKeys.Contains(k));
 
@@ -224,7 +242,16 @@ namespace GridBanner
                     lines.Add($"classification_level = {DefaultConfig["classification_level"]}");
                     lines.Add($"banner_height = {DefaultConfig["banner_height"]}");
                     lines.Add("; Optional override if Azure AD reports a short tenant name (e.g. set to \"PrecisionX Technology LLC\")");
-                    lines.Add("; org_name =");
+                    lines.Add("org_name =");
+                    lines.Add(string.Empty);
+                    lines.Add("; Device compliance badge (right side)");
+                    lines.Add("; compliance_check_enabled: 1=show badge (and optionally run compliance_check_command), 0=hide badge");
+                    lines.Add($"compliance_check_enabled = {DefaultConfig["compliance_check_enabled"]}");
+                    lines.Add("; compliance_status: 1=compliant (green), 0=non-compliant (red) (used when no command is set or command fails)");
+                    lines.Add($"compliance_status = {DefaultConfig["compliance_status"]}");
+                    lines.Add("; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.");
+                    lines.Add("; Example: compliance_check_command = powershell.exe -NoProfile -Command \"exit 0\"");
+                    lines.Add($"compliance_check_command = {DefaultConfig["compliance_check_command"]}");
                     File.WriteAllLines(path, lines);
                     return;
                 }
@@ -282,6 +309,30 @@ namespace GridBanner
                     toInsert.Add("; Optional override if Azure AD reports a short tenant name (e.g. set to \"PrecisionX Technology LLC\")");
                     toInsert.Add("org_name =");
                 }
+                if (!HasKey("compliance_check_enabled") || !HasKey("compliance_status") || !HasKey("compliance_check_command"))
+                {
+                    toInsert.Add(string.Empty);
+                    toInsert.Add("; Device compliance badge (right side)");
+                    toInsert.Add("; compliance_check_enabled: 1=show badge (and optionally run compliance_check_command), 0=hide badge");
+
+                    if (!HasKey("compliance_check_enabled"))
+                    {
+                        toInsert.Add($"compliance_check_enabled = {DefaultConfig["compliance_check_enabled"]}");
+                    }
+
+                    toInsert.Add("; compliance_status: 1=compliant (green), 0=non-compliant (red) (used when no command is set or command fails)");
+                    if (!HasKey("compliance_status"))
+                    {
+                        toInsert.Add($"compliance_status = {DefaultConfig["compliance_status"]}");
+                    }
+
+                    toInsert.Add("; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.");
+                    toInsert.Add("; Example: compliance_check_command = powershell.exe -NoProfile -Command \"exit 0\"");
+                    if (!HasKey("compliance_check_command"))
+                    {
+                        toInsert.Add($"compliance_check_command = {DefaultConfig["compliance_check_command"]}");
+                    }
+                }
 
                 if (toInsert.Count > 0)
                 {
@@ -297,6 +348,7 @@ namespace GridBanner
                 // This can happen if older versions wrote commented org_name and augmentation added another.
                 var seenOrg = false;
                 var seenOrgComment = false;
+                var seenComplianceComment = false;
                 for (var i = displayIdx + 1; i < lines.Count; i++)
                 {
                     var t = lines[i].Trim();
@@ -314,6 +366,19 @@ namespace GridBanner
                         else
                         {
                             seenOrgComment = true;
+                        }
+                        continue;
+                    }
+
+                    if (t.Contains("Device compliance badge", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (seenComplianceComment)
+                        {
+                            lines[i] = string.Empty;
+                        }
+                        else
+                        {
+                            seenComplianceComment = true;
                         }
                         continue;
                     }

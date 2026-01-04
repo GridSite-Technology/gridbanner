@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Forms;
@@ -86,6 +87,32 @@ namespace GridBanner
                     ? orgOverride.Trim()
                     : userInfo.GetValueOrDefault("org_name", "ORGANIZATION");
 
+                // Compliance badge settings
+                var complianceEnabled = ParseInt(config.GetValueOrDefault("compliance_check_enabled", "1"), 1) == 1;
+                var complianceStatusFallback = ParseInt(config.GetValueOrDefault("compliance_status", "1"), 1);
+                complianceStatusFallback = complianceStatusFallback == 1 ? 1 : 0;
+
+                var complianceCommand = config.GetValueOrDefault("compliance_check_command", string.Empty).Trim();
+                var complianceStatus = complianceStatusFallback;
+
+                if (complianceEnabled && !string.IsNullOrWhiteSpace(complianceCommand))
+                {
+                    LogMessage("Running compliance_check_command...");
+                    if (TryRunComplianceCommand(complianceCommand, out var commandCompliant, out var details))
+                    {
+                        complianceStatus = commandCompliant ? 1 : 0;
+                        LogMessage($"Compliance command result: {(complianceStatus == 1 ? "COMPLIANT" : "NON-COMPLIANT")} ({details})");
+                    }
+                    else
+                    {
+                        LogMessage($"Compliance command failed; using compliance_status fallback={complianceStatusFallback}. Details: {details}");
+                    }
+                }
+                else
+                {
+                    LogMessage($"Compliance: enabled={complianceEnabled}, using compliance_status={complianceStatusFallback} (no command)");
+                }
+
                 // Create banner window for each screen
                 var screens = Screen.AllScreens;
                 LogMessage($"Detected {screens?.Length ?? 0} screen(s)");
@@ -106,7 +133,9 @@ namespace GridBanner
                                 ClassificationLevel = classificationLevel,
                                 BackgroundColor = new SolidColorBrush(backgroundColor),
                                 ForegroundColor = new SolidColorBrush(foregroundColor),
-                                BannerHeight = bannerHeight
+                                BannerHeight = bannerHeight,
+                                ComplianceEnabled = complianceEnabled,
+                                ComplianceStatus = complianceStatus
                             };
 
                             bannerWindow.SetScreen(screen);
@@ -168,6 +197,67 @@ namespace GridBanner
             }
 
             return Colors.Navy; // Default fallback
+        }
+
+        private static int ParseInt(string? raw, int fallback)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return fallback;
+            }
+
+            return int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+        }
+
+        private static bool TryRunComplianceCommand(string command, out bool compliant, out string details)
+        {
+            compliant = true;
+            details = "not run";
+
+            try
+            {
+                // Use cmd.exe so config can specify PowerShell, scripts, etc.
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/c " + command,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var proc = Process.Start(psi);
+                if (proc == null)
+                {
+                    details = "Process.Start returned null";
+                    return false;
+                }
+
+                // Keep startup snappy; if it takes too long we fallback to config.
+                var exited = proc.WaitForExit(2500);
+                if (!exited)
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                    details = "timeout (>2500ms)";
+                    return false;
+                }
+
+                var stdout = proc.StandardOutput.ReadToEnd().Trim();
+                var stderr = proc.StandardError.ReadToEnd().Trim();
+
+                // Convention: exit code 0 = compliant
+                compliant = proc.ExitCode == 0;
+                details = $"exitCode={proc.ExitCode}"
+                          + (string.IsNullOrWhiteSpace(stdout) ? "" : $", stdout='{stdout}'")
+                          + (string.IsNullOrWhiteSpace(stderr) ? "" : $", stderr='{stderr}'");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                details = ex.Message;
+                return false;
+            }
         }
 
         protected override void OnClosed(EventArgs e)
