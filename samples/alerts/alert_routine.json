@@ -1,0 +1,9 @@
+{
+  "level": "routine",
+  "summary": "ROUTINE TEST ALERT",
+  "background_color": "#1E88E5",
+  "foreground_color": "#FFFFFF",
+  "message": "Routine test alert (beeps once). Use this to verify that routine alerts display correctly."
+}
+
+

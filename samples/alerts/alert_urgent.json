@@ -1,0 +1,9 @@
+{
+  "level": "urgent",
+  "summary": "URGENT TEST ALERT",
+  "background_color": "#FB8C00",
+  "foreground_color": "#000000",
+  "message": "Urgent test alert (beeps until dismissed). Click X to dismiss, or clear alert.json to stop."
+}
+
+
