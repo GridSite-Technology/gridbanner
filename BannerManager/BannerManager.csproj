@@ -9,6 +9,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>BannerManager</AssemblyName>
     <RootNamespace>BannerManager</RootNamespace>
+
+    <!-- Publish as a standalone single-file x64 Windows EXE (for easy distribution / Intune packaging) -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
 </Project>

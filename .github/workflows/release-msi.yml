@@ -1,0 +1,41 @@
+name: Build MSIs (Windows x64)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build release MSIs
+        shell: pwsh
+        run: |
+          ./releases/build.ps1 -Configuration Release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: releases/out/*
+
+      - name: Upload to GitHub Release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            releases/out/GridBanner.msi
+            releases/out/BannerManager.msi
+            releases/out/README.md
+
+

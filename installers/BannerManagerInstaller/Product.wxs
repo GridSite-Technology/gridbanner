@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="BannerManager"
+    Manufacturer="GridSite Technology"
+    Version="1.0.0"
+    UpgradeCode="{3D9B83D6-91C1-4F53-8F1C-3F9B3D3A1B6E}"
+    Language="1033"
+    Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BannerManager is already installed." />
+    <MediaTemplate />
+
+    <Feature Id="MainFeature" Title="BannerManager" Level="1">
+      <ComponentRef Id="BannerManagerExe" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLROOT" Name="GridSite">
+        <Directory Id="INSTALLFOLDER" Name="BannerManager" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Install the published single-file EXE -->
+    <Component Id="BannerManagerExe" Guid="{D3E6B87C-81B7-4F4B-9A7D-6F6B8F9C3A12}" Directory="INSTALLFOLDER">
+      <File Id="BannerManagerExeFile" Source="..\..\BannerManager\bin\Release\net8.0-windows\win-x64\publish\BannerManager.exe" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>
+
+
