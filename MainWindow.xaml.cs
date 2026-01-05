@@ -363,6 +363,35 @@ namespace GridBanner
 
             _closedSuperCriticalSignature = _activeAlert.Signature;
             HideAllSuperCriticalWindows();
+
+            // Re-show the non-dismissible sub-bar immediately (no need to wait for a new alert event).
+            try
+            {
+                var alert = _activeAlert;
+                var bgBrush = new SolidColorBrush(ParseColor(alert.BackgroundColor));
+                var fgBrush = new SolidColorBrush(ParseColor(alert.ForegroundColor));
+
+                foreach (var w in _alertWindows)
+                {
+                    try
+                    {
+                        w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: false);
+                        if (!w.IsVisible)
+                        {
+                            w.Show();
+                        }
+                        w.Topmost = true;
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
         private void CloseAllSuperCriticalWindows()
