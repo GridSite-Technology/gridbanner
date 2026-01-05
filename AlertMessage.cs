@@ -6,7 +6,8 @@ namespace GridBanner
     {
         Routine,
         Urgent,
-        Critical
+        Critical,
+        SuperCritical
     }
 
     public sealed record AlertMessage(

@@ -15,10 +15,12 @@ namespace GridBanner
     {
         private readonly List<BannerWindow> _bannerWindows = new();
         private readonly List<AlertBarWindow> _alertWindows = new();
+        private readonly List<SuperCriticalAlertWindow> _superCriticalWindows = new();
         private readonly AlertSoundPlayer _alertSoundPlayer = new();
         private AlertManager? _alertManager;
         private AlertMessage? _activeAlert;
         private string? _dismissedAlertSignature;
+        private string? _closedSuperCriticalSignature;
 
         private static readonly string LogPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -284,14 +286,17 @@ namespace GridBanner
             try { _alertManager?.Stop(); } catch { /* ignore */ }
             _activeAlert = null;
             _dismissedAlertSignature = null;
+            _closedSuperCriticalSignature = null;
             _alertSoundPlayer.Stop();
             HideAllAlertWindows();
+            HideAllSuperCriticalWindows();
         }
 
         private void CreateOrRefreshAlertWindows(double height)
         {
             // Recreate per current monitors; these are overlay bars (topmost) and should not reserve space.
             CloseAllAlertWindows();
+            CloseAllSuperCriticalWindows();
 
             var screens = Screen.AllScreens;
             if (screens == null || screens.Length == 0)
@@ -307,6 +312,9 @@ namespace GridBanner
                 w.Hide();
                 _alertWindows.Add(w);
             }
+
+            // Prepare super-critical overlays too (hidden until needed)
+            CreateOrRefreshSuperCriticalWindows();
         }
 
         private void CloseAllAlertWindows()
@@ -326,6 +334,54 @@ namespace GridBanner
             }
         }
 
+        private void CreateOrRefreshSuperCriticalWindows()
+        {
+            CloseAllSuperCriticalWindows();
+
+            var screens = Screen.AllScreens;
+            if (screens == null || screens.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var screen in screens)
+            {
+                var w = new SuperCriticalAlertWindow();
+                w.SetScreen(screen);
+                w.OnClosedLocally = CloseSuperCriticalOverlayLocally;
+                w.Hide();
+                _superCriticalWindows.Add(w);
+            }
+        }
+
+        private void CloseSuperCriticalOverlayLocally()
+        {
+            if (_activeAlert?.Level != AlertLevel.SuperCritical)
+            {
+                return;
+            }
+
+            _closedSuperCriticalSignature = _activeAlert.Signature;
+            HideAllSuperCriticalWindows();
+        }
+
+        private void CloseAllSuperCriticalWindows()
+        {
+            foreach (var w in _superCriticalWindows.ToList())
+            {
+                try { w.Close(); } catch { /* ignore */ }
+            }
+            _superCriticalWindows.Clear();
+        }
+
+        private void HideAllSuperCriticalWindows()
+        {
+            foreach (var w in _superCriticalWindows)
+            {
+                try { w.Hide(); } catch { /* ignore */ }
+            }
+        }
+
         private void ApplyAlert(AlertMessage? alert)
         {
             _activeAlert = alert;
@@ -333,8 +389,10 @@ namespace GridBanner
             if (alert == null)
             {
                 _dismissedAlertSignature = null;
+                _closedSuperCriticalSignature = null;
                 _alertSoundPlayer.Update(null, dismissed: false);
                 HideAllAlertWindows();
+                HideAllSuperCriticalWindows();
                 return;
             }
 
@@ -344,10 +402,63 @@ namespace GridBanner
             var bgBrush = new SolidColorBrush(ParseColor(alert.BackgroundColor));
             var fgBrush = new SolidColorBrush(ParseColor(alert.ForegroundColor));
 
+            // Super critical: show full-screen overlay (can be closed locally), plus a non-dismissible top bar.
+            if (alert.Level == AlertLevel.SuperCritical)
+            {
+                if (_superCriticalWindows.Count == 0)
+                {
+                    CreateOrRefreshSuperCriticalWindows();
+                }
+
+                var overlayClosedLocally = string.Equals(_closedSuperCriticalSignature, alert.Signature, StringComparison.Ordinal);
+                if (!overlayClosedLocally)
+                {
+                    foreach (var w in _superCriticalWindows)
+                    {
+                        try
+                        {
+                            w.Apply(alert, bgBrush, fgBrush);
+                            if (!w.IsVisible)
+                            {
+                                w.Show();
+                            }
+                            w.Topmost = true;
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
+                    }
+                }
+
+                // Always show the top bar, but no dismiss button.
+                foreach (var w in _alertWindows)
+                {
+                    try
+                    {
+                        w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: false);
+                        if (!w.IsVisible)
+                        {
+                            w.Show();
+                        }
+                        w.Topmost = true;
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+
+                // Beep until cleared (handled in AlertSoundPlayer)
+                _alertSoundPlayer.Update(alert, dismissed: false);
+                return;
+            }
+
             if (dismissed)
             {
                 _alertSoundPlayer.Update(alert, dismissed: true);
                 HideAllAlertWindows();
+                HideAllSuperCriticalWindows();
                 return;
             }
 
@@ -369,6 +480,7 @@ namespace GridBanner
             }
 
             _alertSoundPlayer.Update(alert, dismissed: false);
+            HideAllSuperCriticalWindows();
         }
 
         private void DismissCurrentAlert()
@@ -529,6 +641,7 @@ namespace GridBanner
             // Close all banner windows when main window closes
             CloseAllBanners();
             CloseAllAlertWindows();
+            CloseAllSuperCriticalWindows();
             try { _alertManager?.Dispose(); } catch { /* ignore */ }
             _alertManager = null;
 

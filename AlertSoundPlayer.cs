@@ -34,8 +34,8 @@ namespace GridBanner
                 return;
             }
 
-            // Critical continues until cleared (no dismiss)
-            if (alert.Level == AlertLevel.Critical)
+            // Critical/SuperCritical continue until cleared (no dismiss)
+            if (alert.Level == AlertLevel.Critical || alert.Level == AlertLevel.SuperCritical)
             {
                 _current = alert;
                 StartLoop();

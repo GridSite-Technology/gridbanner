@@ -228,6 +228,9 @@ namespace GridBanner
                 "routine" => AlertLevel.Routine,
                 "urgent" => AlertLevel.Urgent,
                 "critical" => AlertLevel.Critical,
+                "supercritical" => AlertLevel.SuperCritical,
+                "super_critical" => AlertLevel.SuperCritical,
+                "super-critical" => AlertLevel.SuperCritical,
                 _ => (AlertLevel?)null
             };
 
