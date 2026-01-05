@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Navigation;
+using System.Windows.Input;
 
 namespace GridBanner
 {
@@ -20,15 +20,15 @@ namespace GridBanner
 
         public string ContactTeamsLabel => string.IsNullOrWhiteSpace(ContactTeams) ? string.Empty : ContactTeams!;
 
-        public Uri? ContactPhoneUri => BuildTelUri(ContactPhone);
-        public Uri? ContactEmailUri => BuildMailtoUri(ContactEmail);
-        public Uri? ContactTeamsUri => BuildTeamsUri(ContactTeams);
+        public string? ContactPhoneLink => BuildTelLink(ContactPhone);
+        public string? ContactEmailLink => BuildMailtoLink(ContactEmail);
+        public string? ContactTeamsLink => BuildTeamsLink(ContactTeams);
 
         public Visibility ContactVisibility => HasAnyContact ? Visibility.Visible : Visibility.Collapsed;
         public Visibility ContactNameVisibility => string.IsNullOrWhiteSpace(ContactName) ? Visibility.Collapsed : Visibility.Visible;
-        public Visibility ContactPhoneVisibility => ContactPhoneUri == null ? Visibility.Collapsed : Visibility.Visible;
-        public Visibility ContactEmailVisibility => ContactEmailUri == null ? Visibility.Collapsed : Visibility.Visible;
-        public Visibility ContactTeamsVisibility => ContactTeamsUri == null ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility ContactPhoneVisibility => string.IsNullOrWhiteSpace(ContactPhoneLink) ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility ContactEmailVisibility => string.IsNullOrWhiteSpace(ContactEmailLink) ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility ContactTeamsVisibility => string.IsNullOrWhiteSpace(ContactTeamsLink) ? Visibility.Collapsed : Visibility.Visible;
         private bool HasAnyContact =>
             !string.IsNullOrWhiteSpace(ContactName) ||
             !string.IsNullOrWhiteSpace(ContactPhone) ||
@@ -49,18 +49,20 @@ namespace GridBanner
             DataContext = this;
         }
 
-        private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
+        private void Link_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             try
             {
-                // UseShellExecute allows OS to route mailto:/tel:/msteams:/https links properly.
-                Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+                if (sender is FrameworkElement fe && fe.Tag is string link && !string.IsNullOrWhiteSpace(link))
+                {
+                    // UseShellExecute allows OS to route mailto:/tel:/msteams:/https links properly.
+                    Process.Start(new ProcessStartInfo(link) { UseShellExecute = true });
+                }
             }
             catch
             {
                 // ignore
             }
-            e.Handled = true;
         }
 
         private void Close_Click(object sender, RoutedEventArgs e)
@@ -68,7 +70,7 @@ namespace GridBanner
             Close();
         }
 
-        private static Uri? BuildTelUri(string? phone)
+        private static string? BuildTelLink(string? phone)
         {
             if (string.IsNullOrWhiteSpace(phone))
             {
@@ -91,10 +93,10 @@ namespace GridBanner
                 return null;
             }
 
-            return new Uri("tel:" + cleaned);
+            return "tel:" + cleaned;
         }
 
-        private static Uri? BuildMailtoUri(string? email)
+        private static string? BuildMailtoLink(string? email)
         {
             if (string.IsNullOrWhiteSpace(email))
             {
@@ -107,10 +109,10 @@ namespace GridBanner
                 return null;
             }
 
-            return new Uri("mailto:" + trimmed);
+            return "mailto:" + trimmed;
         }
 
-        private static Uri? BuildTeamsUri(string? value)
+        private static string? BuildTeamsLink(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -124,7 +126,7 @@ namespace GridBanner
                 trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             {
-                return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ? uri : null;
+                return Uri.TryCreate(trimmed, UriKind.Absolute, out _) ? trimmed : null;
             }
 
             // If user provided something else (like a Teams user ID), we can't reliably turn it into a link.

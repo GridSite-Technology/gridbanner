@@ -39,29 +39,32 @@
 
             <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactPhoneVisibility}">
                 <TextBlock Text="Phone: " FontWeight="SemiBold"/>
-                <TextBlock>
-                    <Hyperlink NavigateUri="{Binding ContactPhoneUri}" RequestNavigate="Hyperlink_RequestNavigate">
-                        <Run Text="{Binding ContactPhone}"/>
-                    </Hyperlink>
-                </TextBlock>
+                <TextBlock Text="{Binding ContactPhone}"
+                           Cursor="Hand"
+                           Foreground="DodgerBlue"
+                           TextDecorations="Underline"
+                           Tag="{Binding ContactPhoneLink}"
+                           MouseLeftButtonUp="Link_MouseLeftButtonUp"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactEmailVisibility}">
                 <TextBlock Text="Email: " FontWeight="SemiBold"/>
-                <TextBlock>
-                    <Hyperlink NavigateUri="{Binding ContactEmailUri}" RequestNavigate="Hyperlink_RequestNavigate">
-                        <Run Text="{Binding ContactEmail}"/>
-                    </Hyperlink>
-                </TextBlock>
+                <TextBlock Text="{Binding ContactEmail}"
+                           Cursor="Hand"
+                           Foreground="DodgerBlue"
+                           TextDecorations="Underline"
+                           Tag="{Binding ContactEmailLink}"
+                           MouseLeftButtonUp="Link_MouseLeftButtonUp"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactTeamsVisibility}">
                 <TextBlock Text="Teams: " FontWeight="SemiBold"/>
-                <TextBlock>
-                    <Hyperlink NavigateUri="{Binding ContactTeamsUri}" RequestNavigate="Hyperlink_RequestNavigate">
-                        <Run Text="{Binding ContactTeamsLabel}"/>
-                    </Hyperlink>
-                </TextBlock>
+                <TextBlock Text="{Binding ContactTeamsLabel}"
+                           Cursor="Hand"
+                           Foreground="DodgerBlue"
+                           TextDecorations="Underline"
+                           Tag="{Binding ContactTeamsLink}"
+                           MouseLeftButtonUp="Link_MouseLeftButtonUp"/>
             </StackPanel>
         </StackPanel>
 

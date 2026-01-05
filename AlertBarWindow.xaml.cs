@@ -83,11 +83,23 @@ namespace GridBanner
                 return;
             }
 
-            var dlg = new AlertDetailsWindow(CurrentAlert, BackgroundBrush, ForegroundBrush)
+            try
             {
-                Owner = this
-            };
-            dlg.ShowDialog();
+                var dlg = new AlertDetailsWindow(CurrentAlert, BackgroundBrush, ForegroundBrush)
+                {
+                    Owner = this
+                };
+                dlg.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to open AlertDetailsWindow: {ex}");
+                System.Windows.MessageBox.Show(
+                    $"Failed to open alert details: {ex.Message}",
+                    "GridBanner Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
