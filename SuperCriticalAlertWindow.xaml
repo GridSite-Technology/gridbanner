@@ -51,15 +51,11 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Grid Grid.Row="0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <TextBlock Grid.Column="0"
+                <TextBlock
                            Text="{Binding Header}"
                            Foreground="{Binding ForegroundBrush}"
                            FontSize="56"
@@ -69,22 +65,24 @@
                         <ScaleTransform x:Name="HeaderScale" ScaleX="1.0" ScaleY="1.0"/>
                     </TextBlock.RenderTransform>
                 </TextBlock>
-
-                <Button Grid.Column="1"
-                        Content="X"
-                        Width="44"
-                        Height="44"
-                        FontSize="18"
-                        Margin="20,0,0,0"
-                        Click="Close_Click"/>
             </Grid>
 
-            <ScrollViewer Grid.Row="1" Margin="0,24,0,0" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Grid.Row="1" Margin="0,24,0,18" VerticalScrollBarVisibility="Auto">
                 <TextBlock Text="{Binding Message}"
                            Foreground="{Binding ForegroundBrush}"
                            FontSize="28"
                            TextWrapping="Wrap"/>
             </ScrollViewer>
+
+            <Button Grid.Row="2"
+                    Content="Acknowledge"
+                    Width="260"
+                    Height="56"
+                    FontSize="22"
+                    FontWeight="Bold"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Click="Acknowledge_Click"/>
         </Grid>
     </Grid>
 </Window>

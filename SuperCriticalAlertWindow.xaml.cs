@@ -65,7 +65,7 @@ namespace GridBanner
             ForegroundBrush = foreground;
         }
 
-        private void Close_Click(object sender, RoutedEventArgs e)
+        private void Acknowledge_Click(object sender, RoutedEventArgs e)
         {
             Hide();
             OnClosedLocally?.Invoke();
