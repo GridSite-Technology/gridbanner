@@ -34,57 +34,58 @@
             <BeginStoryboard Storyboard="{StaticResource FlashStoryboard}"/>
         </EventTrigger>
     </Window.Triggers>
-    <Grid Margin="40">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
+    <!-- ClipToBounds ensures the pulsing header never draws over the border -->
+    <Grid Margin="40" ClipToBounds="True">
         <!-- Attention-grabbing flashing overlay + pulsing border -->
         <Rectangle x:Name="FlashRect"
-                   Grid.RowSpan="3"
                    Fill="{StaticResource FlashBrush}"
                    Opacity="0.0"/>
         <Border x:Name="PulseBorder"
-                Grid.RowSpan="3"
                 BorderBrush="{Binding ForegroundBrush}"
                 BorderThickness="8"
                 CornerRadius="12"
                 Opacity="0.25"/>
 
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+        <!-- Inner content padding keeps text safely inside the border -->
+        <Grid Margin="26">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
-            <TextBlock Grid.Column="0"
-                       Text="{Binding Header}"
-                       Foreground="{Binding ForegroundBrush}"
-                       FontSize="56"
-                       FontWeight="Bold"
-                       TextWrapping="Wrap">
-                <TextBlock.RenderTransform>
-                    <ScaleTransform x:Name="HeaderScale" ScaleX="1.0" ScaleY="1.0"/>
-                </TextBlock.RenderTransform>
-            </TextBlock>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-            <Button Grid.Column="1"
-                    Content="X"
-                    Width="44"
-                    Height="44"
-                    FontSize="18"
-                    Margin="20,0,0,0"
-                    Click="Close_Click"/>
+                <TextBlock Grid.Column="0"
+                           Text="{Binding Header}"
+                           Foreground="{Binding ForegroundBrush}"
+                           FontSize="56"
+                           FontWeight="Bold"
+                           TextWrapping="Wrap">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform x:Name="HeaderScale" ScaleX="1.0" ScaleY="1.0"/>
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+
+                <Button Grid.Column="1"
+                        Content="X"
+                        Width="44"
+                        Height="44"
+                        FontSize="18"
+                        Margin="20,0,0,0"
+                        Click="Close_Click"/>
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" Margin="0,24,0,0" VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding Message}"
+                           Foreground="{Binding ForegroundBrush}"
+                           FontSize="28"
+                           TextWrapping="Wrap"/>
+            </ScrollViewer>
         </Grid>
-
-        <ScrollViewer Grid.Row="1" Margin="0,24,0,24" VerticalScrollBarVisibility="Auto">
-            <TextBlock Text="{Binding Message}"
-                       Foreground="{Binding ForegroundBrush}"
-                       FontSize="28"
-                       TextWrapping="Wrap"/>
-        </ScrollViewer>
     </Grid>
 </Window>
 
