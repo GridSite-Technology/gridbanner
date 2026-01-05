@@ -21,7 +21,7 @@
                        FontSize="17"
                        FontWeight="Bold"
                        VerticalAlignment="Center"/>
-            <TextBlock Text="  "
+            <TextBlock Text=" - "
                        Foreground="{Binding ForegroundColor}"
                        FontSize="17"
                        FontWeight="Bold"

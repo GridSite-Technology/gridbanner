@@ -54,7 +54,9 @@ namespace GridBanner
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = screen.Bounds.X;
-            Top = screen.Bounds.Y;
+            // Place the alert bar below the reserved AppBar work area (i.e., below the main banner).
+            // Our main banner reserves space at the top, so WorkingArea.Top is where normal windows start.
+            Top = screen.WorkingArea.Y;
             Width = screen.Bounds.Width;
             Height = Math.Max(20, height);
             Topmost = true;
