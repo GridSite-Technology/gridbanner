@@ -18,5 +18,12 @@
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" />
   </ItemGroup>
 
+  <!-- Exclude the sibling BannerManager project sources from this project -->
+  <ItemGroup>
+    <Compile Remove="BannerManager\**\*.cs" />
+    <Page Remove="BannerManager\**\*.xaml" />
+    <None Remove="BannerManager\**\*" />
+  </ItemGroup>
+
 </Project>
 
