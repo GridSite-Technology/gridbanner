@@ -19,3 +19,4 @@ echo Standalone executable location: bin\Release\net8.0-windows\win-x64\publish\
 echo.
 pause
 
+

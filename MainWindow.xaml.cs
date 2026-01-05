@@ -14,6 +14,12 @@ namespace GridBanner
     public partial class MainWindow : Window
     {
         private readonly List<BannerWindow> _bannerWindows = new();
+        private readonly List<AlertBarWindow> _alertWindows = new();
+        private readonly AlertSoundPlayer _alertSoundPlayer = new();
+        private AlertManager? _alertManager;
+        private AlertMessage? _activeAlert;
+        private string? _dismissedAlertSignature;
+
         private static readonly string LogPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "userdata", "gridbanner", "gridbanner.log");
@@ -100,6 +106,7 @@ namespace GridBanner
                 LogMessage($"Banner height: {bannerHeight} (raw='{bannerHeightRaw}')");
 
                 // Get username and org with fallbacks
+                var computerName = Environment.MachineName;
                 var username = userInfo.GetValueOrDefault("username", Environment.UserName);
 
                 var orgOverride = config.GetValueOrDefault("org_name", string.Empty);
@@ -144,6 +151,7 @@ namespace GridBanner
                 }
 
                 CreateOrRefreshBanners(
+                    computerName,
                     username,
                     orgName,
                     classificationLevel,
@@ -152,6 +160,9 @@ namespace GridBanner
                     bannerHeight,
                     complianceEnabled,
                     complianceStatus);
+
+                // Alert overlays (optional; configured via conf.ini)
+                SetupAlertSystem(config, bannerHeight);
 
                 // Hide the main window
                 Hide();
@@ -167,6 +178,7 @@ namespace GridBanner
         }
 
         private void CreateOrRefreshBanners(
+            string computerName,
             string username,
             string orgName,
             string classificationLevel,
@@ -196,6 +208,7 @@ namespace GridBanner
 
                     var bannerWindow = new BannerWindow
                     {
+                        ComputerName = computerName,
                         Username = username,
                         OrgName = orgName,
                         ClassificationLevel = classificationLevel,
@@ -220,6 +233,159 @@ namespace GridBanner
             }
 
             LogMessage($"Successfully created {_bannerWindows.Count} banner window(s)");
+        }
+
+        private void SetupAlertSystem(Dictionary<string, string> config, double alertBarHeight)
+        {
+            var alertFile = config.GetValueOrDefault("alert_file_location", string.Empty).Trim();
+            var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
+
+            // Nothing configured => clear any active alerts and stop monitoring
+            if (string.IsNullOrWhiteSpace(alertFile) && string.IsNullOrWhiteSpace(alertUrl))
+            {
+                StopAlertSystem();
+                return;
+            }
+
+            var pollSecondsRaw = config.GetValueOrDefault("alert_poll_seconds", "5").Trim();
+            var pollSeconds = 5;
+            if (!int.TryParse(pollSecondsRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out pollSeconds))
+            {
+                pollSeconds = 5;
+            }
+            if (pollSeconds < 1) pollSeconds = 1;
+            if (pollSeconds > 300) pollSeconds = 300;
+
+            EnsureAlertManager();
+            CreateOrRefreshAlertWindows(alertBarHeight);
+
+            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds));
+            _alertManager.Start();
+
+            LogMessage($"Alert system enabled. file='{alertFile}', url='{alertUrl}', pollSeconds={pollSeconds}");
+        }
+
+        private void EnsureAlertManager()
+        {
+            if (_alertManager != null)
+            {
+                return;
+            }
+
+            _alertManager = new AlertManager();
+            _alertManager.AlertChanged += (_, alert) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() => ApplyAlert(alert)));
+            };
+        }
+
+        private void StopAlertSystem()
+        {
+            try { _alertManager?.Stop(); } catch { /* ignore */ }
+            _activeAlert = null;
+            _dismissedAlertSignature = null;
+            _alertSoundPlayer.Stop();
+            HideAllAlertWindows();
+        }
+
+        private void CreateOrRefreshAlertWindows(double height)
+        {
+            // Recreate per current monitors; these are overlay bars (topmost) and should not reserve space.
+            CloseAllAlertWindows();
+
+            var screens = Screen.AllScreens;
+            if (screens == null || screens.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var screen in screens)
+            {
+                var w = new AlertBarWindow();
+                w.SetScreen(screen, height);
+                w.OnDismissRequested = DismissCurrentAlert;
+                w.Hide();
+                _alertWindows.Add(w);
+            }
+        }
+
+        private void CloseAllAlertWindows()
+        {
+            foreach (var w in _alertWindows.ToList())
+            {
+                try { w.Close(); } catch { /* ignore */ }
+            }
+            _alertWindows.Clear();
+        }
+
+        private void HideAllAlertWindows()
+        {
+            foreach (var w in _alertWindows)
+            {
+                try { w.Hide(); } catch { /* ignore */ }
+            }
+        }
+
+        private void ApplyAlert(AlertMessage? alert)
+        {
+            _activeAlert = alert;
+
+            if (alert == null)
+            {
+                _dismissedAlertSignature = null;
+                _alertSoundPlayer.Update(null, dismissed: false);
+                HideAllAlertWindows();
+                return;
+            }
+
+            var isDismissable = alert.Level == AlertLevel.Routine || alert.Level == AlertLevel.Urgent;
+            var dismissed = isDismissable && string.Equals(_dismissedAlertSignature, alert.Signature, StringComparison.Ordinal);
+
+            var bgBrush = new SolidColorBrush(ParseColor(alert.BackgroundColor));
+            var fgBrush = new SolidColorBrush(ParseColor(alert.ForegroundColor));
+
+            if (dismissed)
+            {
+                _alertSoundPlayer.Update(alert, dismissed: true);
+                HideAllAlertWindows();
+                return;
+            }
+
+            foreach (var w in _alertWindows)
+            {
+                try
+                {
+                    w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: isDismissable && alert.Level != AlertLevel.Critical);
+                    if (!w.IsVisible)
+                    {
+                        w.Show();
+                    }
+                    w.Topmost = true;
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            _alertSoundPlayer.Update(alert, dismissed: false);
+        }
+
+        private void DismissCurrentAlert()
+        {
+            if (_activeAlert == null)
+            {
+                return;
+            }
+
+            if (!(_activeAlert.Level == AlertLevel.Routine || _activeAlert.Level == AlertLevel.Urgent))
+            {
+                return;
+            }
+
+            _dismissedAlertSignature = _activeAlert.Signature;
+            _alertSoundPlayer.Update(_activeAlert, dismissed: true);
+            HideAllAlertWindows();
         }
 
         private void CloseAllBanners()
@@ -248,6 +414,7 @@ namespace GridBanner
                     _isSessionLocked = true;
                     LogMessage("Session locked: closing banners / unregistering appbars.");
                     CloseAllBanners();
+                    StopAlertSystem();
                 }
                 else if (e.Reason == SessionSwitchReason.SessionUnlock)
                 {
@@ -361,6 +528,9 @@ namespace GridBanner
         {
             // Close all banner windows when main window closes
             CloseAllBanners();
+            CloseAllAlertWindows();
+            try { _alertManager?.Dispose(); } catch { /* ignore */ }
+            _alertManager = null;
 
             try
             {

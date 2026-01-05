@@ -10,6 +10,7 @@ namespace GridBanner
 {
     public partial class BannerWindow : Window
     {
+        public string ComputerName { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
         public string OrgName { get; set; } = string.Empty;
         public string ClassificationLevel { get; set; } = string.Empty;

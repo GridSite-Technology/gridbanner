@@ -1,0 +1,263 @@
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace GridBanner
+{
+    public sealed class AlertManager : IDisposable
+    {
+        public event EventHandler<AlertMessage?>? AlertChanged;
+
+        private readonly object _gate = new();
+        private readonly JsonSerializerOptions _jsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        private string? _filePath;
+        private string? _url;
+        private TimeSpan _pollInterval = TimeSpan.FromSeconds(5);
+
+        private FileSystemWatcher? _watcher;
+        private Timer? _debounceTimer;
+        private Timer? _urlTimer;
+        private readonly HttpClient _httpClient = new()
+        {
+            Timeout = TimeSpan.FromSeconds(2)
+        };
+
+        private CancellationTokenSource? _cts;
+
+        private AlertMessage? _current;
+
+        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval)
+        {
+            _filePath = string.IsNullOrWhiteSpace(alertFileLocation) ? null : alertFileLocation.Trim();
+            _url = string.IsNullOrWhiteSpace(alertUrl) ? null : alertUrl.Trim();
+            _pollInterval = pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : pollInterval;
+        }
+
+        public void Start()
+        {
+            Stop();
+
+            _cts = new CancellationTokenSource();
+
+            if (!string.IsNullOrWhiteSpace(_filePath))
+            {
+                StartFileWatcher(_filePath!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_url))
+            {
+                _urlTimer = new Timer(async _ => await EvaluateAsync().ConfigureAwait(false), null, TimeSpan.Zero, _pollInterval);
+            }
+            else
+            {
+                // Still do an initial evaluation (for file path).
+                _ = EvaluateAsync();
+            }
+        }
+
+        public void Stop()
+        {
+            try { _cts?.Cancel(); } catch { /* ignore */ }
+            try { _cts?.Dispose(); } catch { /* ignore */ }
+            _cts = null;
+
+            try { _watcher?.Dispose(); } catch { /* ignore */ }
+            _watcher = null;
+
+            try { _debounceTimer?.Dispose(); } catch { /* ignore */ }
+            _debounceTimer = null;
+
+            try { _urlTimer?.Dispose(); } catch { /* ignore */ }
+            _urlTimer = null;
+        }
+
+        private void StartFileWatcher(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            var file = Path.GetFileName(path);
+            if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(file))
+            {
+                return;
+            }
+
+            if (!Directory.Exists(dir))
+            {
+                // Directory may not exist yet; we still rely on periodic URL polling (if any),
+                // or initial evaluation will clear.
+                return;
+            }
+
+            _watcher = new FileSystemWatcher(dir, file)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.Size
+            };
+
+            _watcher.Changed += (_, __) => DebounceEvaluate();
+            _watcher.Created += (_, __) => DebounceEvaluate();
+            _watcher.Deleted += (_, __) => DebounceEvaluate();
+            _watcher.Renamed += (_, __) => DebounceEvaluate();
+            _watcher.EnableRaisingEvents = true;
+        }
+
+        private void DebounceEvaluate()
+        {
+            lock (_gate)
+            {
+                _debounceTimer ??= new Timer(async _ => await EvaluateAsync().ConfigureAwait(false), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                _debounceTimer.Change(TimeSpan.FromMilliseconds(250), Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        private async Task EvaluateAsync()
+        {
+            var ct = _cts?.Token ?? CancellationToken.None;
+
+            AlertMessage? next = null;
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_url))
+                {
+                    next = await TryLoadFromUrlAsync(_url!, ct).ConfigureAwait(false);
+                }
+                else if (!string.IsNullOrWhiteSpace(_filePath))
+                {
+                    next = await TryLoadFromFileAsync(_filePath!, ct).ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+                // Conservative: on errors, treat as "no alert"
+                next = null;
+            }
+
+            AlertMessage? previous;
+            lock (_gate)
+            {
+                previous = _current;
+                if (previous?.Signature == next?.Signature)
+                {
+                    return;
+                }
+                _current = next;
+            }
+
+            AlertChanged?.Invoke(this, next);
+        }
+
+        private async Task<AlertMessage?> TryLoadFromFileAsync(string path, CancellationToken ct)
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var json = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
+            return ParseAlertJson(json);
+        }
+
+        private async Task<AlertMessage?> TryLoadFromUrlAsync(string url, CancellationToken ct)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return ParseAlertJson(json);
+        }
+
+        private AlertMessage? ParseAlertJson(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return null;
+            }
+
+            // Allow empty JSON files => no alert
+            var trimmed = json.Trim();
+            if (trimmed.Length == 0)
+            {
+                return null;
+            }
+
+            AlertPayload? payload;
+            try
+            {
+                payload = JsonSerializer.Deserialize<AlertPayload>(trimmed, _jsonOptions);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (payload == null)
+            {
+                return null;
+            }
+
+            var summary = payload.Summary?.Trim() ?? string.Empty;
+            var message = payload.Message?.Trim() ?? string.Empty;
+            var bg = payload.BackgroundColor?.Trim() ?? string.Empty;
+            var fg = payload.ForegroundColor?.Trim() ?? string.Empty;
+            var levelRaw = payload.Level?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(summary) ||
+                string.IsNullOrWhiteSpace(message) ||
+                string.IsNullOrWhiteSpace(bg) ||
+                string.IsNullOrWhiteSpace(fg) ||
+                string.IsNullOrWhiteSpace(levelRaw))
+            {
+                return null;
+            }
+
+            var level = levelRaw.ToLowerInvariant() switch
+            {
+                "routine" => AlertLevel.Routine,
+                "urgent" => AlertLevel.Urgent,
+                "critical" => AlertLevel.Critical,
+                _ => (AlertLevel?)null
+            };
+
+            if (level == null)
+            {
+                return null;
+            }
+
+            var signature = ComputeSignature(trimmed);
+            return new AlertMessage(signature, level.Value, summary, message, bg, fg);
+        }
+
+        private static string ComputeSignature(string input)
+        {
+            var bytes = Encoding.UTF8.GetBytes(input);
+            var hash = SHA256.HashData(bytes);
+            var sb = new StringBuilder(hash.Length * 2);
+            foreach (var b in hash)
+            {
+                sb.Append(b.ToString("x2"));
+            }
+            return sb.ToString();
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _httpClient.Dispose();
+        }
+    }
+}
+
+

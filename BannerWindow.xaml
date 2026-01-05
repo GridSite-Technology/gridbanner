@@ -15,12 +15,23 @@
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <TextBlock Grid.Column="0"
-                   Text="{Binding Username}"
-                   Foreground="{Binding ForegroundColor}"
-                   FontSize="17"
-                   FontWeight="Bold"
-                   VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock Text="{Binding ComputerName}"
+                       Foreground="{Binding ForegroundColor}"
+                       FontSize="17"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+            <TextBlock Text="  "
+                       Foreground="{Binding ForegroundColor}"
+                       FontSize="17"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+            <TextBlock Text="{Binding Username}"
+                       Foreground="{Binding ForegroundColor}"
+                       FontSize="17"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
 
         <TextBlock Grid.Column="1"
                    Text="{Binding ClassificationLevel}"
