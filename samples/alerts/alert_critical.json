@@ -3,7 +3,11 @@
   "summary": "CRITICAL TEST ALERT",
   "background_color": "#B00020",
   "foreground_color": "#FFFFFF",
-  "message": "Critical test alert (beeps until cleared). There is no dismiss X. Clear/delete alert.json to stop."
+  "message": "Critical test alert (beeps until cleared). There is no dismiss X. Clear/delete alert.json to stop.",
+  "alert_contact_name": "GridSite Incident Commander",
+  "alert_contact_phone": "+1 (555) 010-0003",
+  "alert_contact_email": "incident@example.com",
+  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=incident@example.com"
 }
 
 

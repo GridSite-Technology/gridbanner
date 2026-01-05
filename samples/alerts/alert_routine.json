@@ -3,7 +3,11 @@
   "summary": "ROUTINE TEST ALERT",
   "background_color": "#1E88E5",
   "foreground_color": "#FFFFFF",
-  "message": "Routine test alert (beeps once). Use this to verify that routine alerts display correctly."
+  "message": "Routine test alert (beeps once). Use this to verify that routine alerts display correctly.",
+  "alert_contact_name": "GridSite NOC",
+  "alert_contact_phone": "+1 (555) 010-0001",
+  "alert_contact_email": "noc@example.com",
+  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=noc@example.com"
 }
 
 

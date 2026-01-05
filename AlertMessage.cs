@@ -16,7 +16,11 @@ namespace GridBanner
         string Summary,
         string Message,
         string BackgroundColor,
-        string ForegroundColor
+        string ForegroundColor,
+        string? ContactName,
+        string? ContactPhone,
+        string? ContactEmail,
+        string? ContactTeams
     );
 }
 

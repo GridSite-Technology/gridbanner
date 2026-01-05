@@ -19,6 +19,20 @@ namespace GridBanner
 
         [JsonPropertyName("message")]
         public string? Message { get; set; }
+
+        // Optional contact info
+        [JsonPropertyName("alert_contact_name")]
+        public string? AlertContactName { get; set; }
+
+        [JsonPropertyName("alert_contact_phone")]
+        public string? AlertContactPhone { get; set; }
+
+        [JsonPropertyName("alert_contact_email")]
+        public string? AlertContactEmail { get; set; }
+
+        // Can be a Teams deep link (msteams:) or an https link (meeting/chat)
+        [JsonPropertyName("alert_contact_teams")]
+        public string? AlertContactTeams { get; set; }
     }
 }
 

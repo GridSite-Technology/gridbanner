@@ -213,6 +213,10 @@ namespace GridBanner
             var bg = payload.BackgroundColor?.Trim() ?? string.Empty;
             var fg = payload.ForegroundColor?.Trim() ?? string.Empty;
             var levelRaw = payload.Level?.Trim() ?? string.Empty;
+            var contactName = payload.AlertContactName?.Trim();
+            var contactPhone = payload.AlertContactPhone?.Trim();
+            var contactEmail = payload.AlertContactEmail?.Trim();
+            var contactTeams = payload.AlertContactTeams?.Trim();
 
             if (string.IsNullOrWhiteSpace(summary) ||
                 string.IsNullOrWhiteSpace(message) ||
@@ -240,7 +244,18 @@ namespace GridBanner
             }
 
             var signature = ComputeSignature(trimmed);
-            return new AlertMessage(signature, level.Value, summary, message, bg, fg);
+            return new AlertMessage(
+                signature,
+                level.Value,
+                summary,
+                message,
+                bg,
+                fg,
+                string.IsNullOrWhiteSpace(contactName) ? null : contactName,
+                string.IsNullOrWhiteSpace(contactPhone) ? null : contactPhone,
+                string.IsNullOrWhiteSpace(contactEmail) ? null : contactEmail,
+                string.IsNullOrWhiteSpace(contactTeams) ? null : contactTeams
+            );
         }
 
         private static string ComputeSignature(string input)

@@ -4,11 +4,14 @@
         Title="Alert Details"
         Width="700"
         Height="450"
-        WindowStartupLocation="CenterOwner">
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowStyle="ToolWindow">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -25,7 +28,44 @@
                        FontSize="15"/>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="14">
+        <!-- Contact info (optional) -->
+        <StackPanel Grid.Row="2" Orientation="Vertical" Margin="14,0,14,6" Visibility="{Binding ContactVisibility}">
+            <TextBlock Text="Contact" FontWeight="Bold" Margin="0,0,0,4"/>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactNameVisibility}">
+                <TextBlock Text="Name: " FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding ContactName}"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactPhoneVisibility}">
+                <TextBlock Text="Phone: " FontWeight="SemiBold"/>
+                <TextBlock>
+                    <Hyperlink NavigateUri="{Binding ContactPhoneUri}" RequestNavigate="Hyperlink_RequestNavigate">
+                        <Run Text="{Binding ContactPhone}"/>
+                    </Hyperlink>
+                </TextBlock>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactEmailVisibility}">
+                <TextBlock Text="Email: " FontWeight="SemiBold"/>
+                <TextBlock>
+                    <Hyperlink NavigateUri="{Binding ContactEmailUri}" RequestNavigate="Hyperlink_RequestNavigate">
+                        <Run Text="{Binding ContactEmail}"/>
+                    </Hyperlink>
+                </TextBlock>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,2" Visibility="{Binding ContactTeamsVisibility}">
+                <TextBlock Text="Teams: " FontWeight="SemiBold"/>
+                <TextBlock>
+                    <Hyperlink NavigateUri="{Binding ContactTeamsUri}" RequestNavigate="Hyperlink_RequestNavigate">
+                        <Run Text="{Binding ContactTeamsLabel}"/>
+                    </Hyperlink>
+                </TextBlock>
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="14">
             <Button Content="Close" Width="90" Click="Close_Click"/>
         </StackPanel>
     </Grid>

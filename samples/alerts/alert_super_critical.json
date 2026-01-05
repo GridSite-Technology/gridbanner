@@ -3,7 +3,11 @@
   "summary": "SUPER CRITICAL TEST ALERT",
   "background_color": "#000000",
   "foreground_color": "#FFEA00",
-  "message": "SUPER CRITICAL test alert. This should show a full-screen overlay with this full message. The overlay can be closed locally, but the top alert banner stays until the admin clears the alert file. Beeping continues until cleared."
+  "message": "SUPER CRITICAL test alert. This should show a full-screen overlay with this full message. The overlay can be closed locally, but the top alert banner stays until the admin clears the alert file. Beeping continues until cleared.",
+  "alert_contact_name": "GridSite Emergency Hotline",
+  "alert_contact_phone": "+1 (555) 010-0004",
+  "alert_contact_email": "emergency@example.com",
+  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=emergency@example.com"
 }
 
 

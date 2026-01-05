@@ -3,7 +3,11 @@
   "summary": "URGENT TEST ALERT",
   "background_color": "#FB8C00",
   "foreground_color": "#000000",
-  "message": "Urgent test alert (beeps until dismissed). Click X to dismiss, or clear alert.json to stop."
+  "message": "Urgent test alert (beeps until dismissed). Click X to dismiss, or clear alert.json to stop.",
+  "alert_contact_name": "GridSite Security",
+  "alert_contact_phone": "+1 (555) 010-0002",
+  "alert_contact_email": "security@example.com",
+  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=security@example.com"
 }
 
 
