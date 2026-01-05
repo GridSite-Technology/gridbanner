@@ -429,23 +429,28 @@ namespace GridBanner
                             // ignore
                         }
                     }
-                }
 
-                // Always show the top bar, but no dismiss button.
-                foreach (var w in _alertWindows)
+                    // Keep the UI focused: while the full-screen overlay is visible, hide the smaller alert bar.
+                    HideAllAlertWindows();
+                }
+                else
                 {
-                    try
+                    // Overlay was closed locally; show the top bar (still non-dismissible) until admin clears alert.
+                    foreach (var w in _alertWindows)
                     {
-                        w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: false);
-                        if (!w.IsVisible)
+                        try
                         {
-                            w.Show();
+                            w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: false);
+                            if (!w.IsVisible)
+                            {
+                                w.Show();
+                            }
+                            w.Topmost = true;
                         }
-                        w.Topmost = true;
-                    }
-                    catch
-                    {
-                        // ignore
+                        catch
+                        {
+                            // ignore
+                        }
                     }
                 }
 

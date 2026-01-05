@@ -85,13 +85,6 @@
                        FontSize="28"
                        TextWrapping="Wrap"/>
         </ScrollViewer>
-
-        <TextBlock Grid.Row="2"
-                   Text="This is a SUPER CRITICAL alert. The top banner cannot be dismissed. This full-screen view can be closed locally."
-                   Foreground="{Binding ForegroundBrush}"
-                   FontSize="16"
-                   Opacity="0.9"
-                   TextWrapping="Wrap"/>
     </Grid>
 </Window>
 
