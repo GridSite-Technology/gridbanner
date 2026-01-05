@@ -6,8 +6,33 @@
         Topmost="True"
         ShowInTaskbar="False"
         ShowActivated="False">
+    <Window.Resources>
+        <SolidColorBrush x:Key="SubBarFlashBrush" Color="#FF0000" Opacity="0.0"/>
+        <Storyboard x:Key="SubBarFlashStoryboard" RepeatBehavior="Forever" AutoReverse="True">
+            <DoubleAnimation Storyboard.TargetName="FlashRect"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0.0" To="0.30"
+                             Duration="0:0:0.55"/>
+            <DoubleAnimation Storyboard.TargetName="PulseBorder"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0.15" To="0.90"
+                             Duration="0:0:0.55"/>
+        </Storyboard>
+    </Window.Resources>
+
     <Border Background="{Binding BackgroundBrush}">
-        <Grid Margin="16,0" VerticalAlignment="Center">
+        <Grid>
+            <!-- SuperCritical-only flash/pulse overlay (kept invisible for other levels) -->
+            <Rectangle x:Name="FlashRect"
+                       Fill="{StaticResource SubBarFlashBrush}"
+                       Opacity="0.0"/>
+            <Border x:Name="PulseBorder"
+                    BorderBrush="{Binding ForegroundBrush}"
+                    BorderThickness="4"
+                    CornerRadius="0"
+                    Opacity="0.0"/>
+
+            <Grid Margin="16,0" VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -38,7 +63,19 @@
                     VerticalAlignment="Center"
                     Visibility="{Binding DismissVisibility}"/>
         </Grid>
+        </Grid>
     </Border>
+
+    <Window.Triggers>
+        <DataTrigger Binding="{Binding IsFlashing}" Value="True">
+            <DataTrigger.EnterActions>
+                <BeginStoryboard x:Name="FlashStoryboard" Storyboard="{StaticResource SubBarFlashStoryboard}"/>
+            </DataTrigger.EnterActions>
+            <DataTrigger.ExitActions>
+                <StopStoryboard BeginStoryboardName="FlashStoryboard"/>
+            </DataTrigger.ExitActions>
+        </DataTrigger>
+    </Window.Triggers>
 </Window>
 
 

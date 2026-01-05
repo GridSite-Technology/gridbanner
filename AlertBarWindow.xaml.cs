@@ -13,6 +13,7 @@ namespace GridBanner
         private Brush _backgroundBrush = Brushes.Red;
         private Brush _foregroundBrush = Brushes.White;
         private Visibility _dismissVisibility = Visibility.Collapsed;
+        private bool _isFlashing;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -38,6 +39,12 @@ namespace GridBanner
         {
             get => _dismissVisibility;
             set => Set(ref _dismissVisibility, value);
+        }
+
+        public bool IsFlashing
+        {
+            get => _isFlashing;
+            set => Set(ref _isFlashing, value);
         }
 
         public AlertMessage? CurrentAlert { get; private set; }
@@ -69,6 +76,7 @@ namespace GridBanner
             BackgroundBrush = background;
             ForegroundBrush = foreground;
             DismissVisibility = showDismiss ? Visibility.Visible : Visibility.Collapsed;
+            IsFlashing = alert.Level == AlertLevel.SuperCritical;
         }
 
         private void Dismiss_Click(object sender, RoutedEventArgs e)
