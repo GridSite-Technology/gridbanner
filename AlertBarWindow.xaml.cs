@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Forms;
+using System.Windows.Media.Animation;
 
 namespace GridBanner
 {
@@ -14,6 +15,8 @@ namespace GridBanner
         private Brush _foregroundBrush = Brushes.White;
         private Visibility _dismissVisibility = Visibility.Collapsed;
         private bool _isFlashing;
+        private bool _isInitialized;
+        private Storyboard? _flashStoryboard;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -44,7 +47,13 @@ namespace GridBanner
         public bool IsFlashing
         {
             get => _isFlashing;
-            set => Set(ref _isFlashing, value);
+            set
+            {
+                if (Set(ref _isFlashing, value))
+                {
+                    UpdateFlashing();
+                }
+            }
         }
 
         public AlertMessage? CurrentAlert { get; private set; }
@@ -55,6 +64,16 @@ namespace GridBanner
         {
             InitializeComponent();
             DataContext = this;
+            _isInitialized = true;
+
+            try
+            {
+                _flashStoryboard = (Storyboard)FindResource("SubBarFlashStoryboard");
+            }
+            catch
+            {
+                _flashStoryboard = null;
+            }
         }
 
         public void SetScreen(Screen screen, double height)
@@ -77,6 +96,45 @@ namespace GridBanner
             ForegroundBrush = foreground;
             DismissVisibility = showDismiss ? Visibility.Visible : Visibility.Collapsed;
             IsFlashing = alert.Level == AlertLevel.SuperCritical;
+        }
+
+        private void UpdateFlashing()
+        {
+            if (!_isInitialized)
+            {
+                return;
+            }
+
+            try
+            {
+                if (_flashStoryboard == null)
+                {
+                    return;
+                }
+
+                if (IsFlashing)
+                {
+                    // Start (or restart) flashing
+                    _flashStoryboard.Begin(this, true);
+                }
+                else
+                {
+                    // Stop flashing and reset visuals
+                    _flashStoryboard.Remove(this);
+                    if (FindName("FlashRect") is FrameworkElement flash)
+                    {
+                        flash.Opacity = 0.0;
+                    }
+                    if (FindName("PulseBorder") is FrameworkElement border)
+                    {
+                        border.Opacity = 0.0;
+                    }
+                }
+            }
+            catch
+            {
+                // Never crash the alert window because of animation failures.
+            }
         }
 
         private void Dismiss_Click(object sender, RoutedEventArgs e)
@@ -110,14 +168,15 @@ namespace GridBanner
             }
         }
 
-        private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
         {
             if (Equals(field, value))
             {
-                return;
+                return false;
             }
             field = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            return true;
         }
     }
 }

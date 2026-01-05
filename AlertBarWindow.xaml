@@ -66,16 +66,6 @@
         </Grid>
     </Border>
 
-    <Window.Triggers>
-        <DataTrigger Binding="{Binding IsFlashing}" Value="True">
-            <DataTrigger.EnterActions>
-                <BeginStoryboard x:Name="FlashStoryboard" Storyboard="{StaticResource SubBarFlashStoryboard}"/>
-            </DataTrigger.EnterActions>
-            <DataTrigger.ExitActions>
-                <StopStoryboard BeginStoryboardName="FlashStoryboard"/>
-            </DataTrigger.ExitActions>
-        </DataTrigger>
-    </Window.Triggers>
 </Window>
 
 
