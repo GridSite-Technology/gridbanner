@@ -886,13 +886,7 @@
                 });
             }
 
-            function showTemplateStatus(message, isError = false) {
-                const status = document.getElementById('templateStatus');
-                status.textContent = message;
-                status.className = 'status ' + (isError ? 'error' : 'success');
-                status.style.display = 'block';
-                setTimeout(() => { status.style.display = 'none'; }, 5000);
-            }
+            // showTemplateStatus is defined earlier in global scope
 
             // Site target change handler
             document.querySelectorAll('input[name="siteTarget"]').forEach(radio => {
@@ -1024,6 +1018,88 @@
             document.getElementById('authKey').focus();
         }
 
+        // Template modal functions (defined early so they're accessible)
+        function openTemplateModal(template = null) {
+            const modal = document.getElementById('templateModal');
+            if (!modal) {
+                console.error('Template modal not found!');
+                return;
+            }
+            const title = document.getElementById('templateModalTitle');
+            const form = document.getElementById('templateForm');
+            
+            if (template) {
+                title.textContent = 'Edit Template';
+                form.dataset.templateId = template.id;
+                document.getElementById('templateName').value = template.name || '';
+                document.getElementById('templateLevel').value = template.level || 'routine';
+                document.getElementById('templateSummary').value = template.summary || '';
+                document.getElementById('templateMessage').value = template.message || '';
+                document.getElementById('templateBgColor').value = template.background_color || '#B00020';
+                document.getElementById('templateFgColor').value = template.foreground_color || '#FFFFFF';
+                document.getElementById('templateContactName').value = template.alert_contact_name || '';
+                document.getElementById('templateContactPhone').value = template.alert_contact_phone || '';
+                document.getElementById('templateContactEmail').value = template.alert_contact_email || '';
+                document.getElementById('templateContactTeams').value = template.alert_contact_teams || '';
+                document.getElementById('templateBgPreview').style.background = template.background_color || '#B00020';
+                document.getElementById('templateFgPreview').style.background = template.foreground_color || '#FFFFFF';
+                
+                // Load sites and set selected
+                loadSitesForTemplate().then(() => {
+                    if (template.site) {
+                        document.getElementById('templateSite').value = template.site;
+                    }
+                });
+            } else {
+                title.textContent = 'Create Template';
+                form.dataset.templateId = '';
+                form.reset();
+                document.getElementById('templateBgColor').value = '#B00020';
+                document.getElementById('templateFgColor').value = '#FFFFFF';
+                document.getElementById('templateBgPreview').style.background = '#B00020';
+                document.getElementById('templateFgPreview').style.background = '#FFFFFF';
+                loadSitesForTemplate();
+                loadDefaultContactsIntoTemplate();
+            }
+            
+            modal.style.display = 'flex';
+        }
+
+        async function loadSitesForTemplate() {
+            try {
+                const res = await fetch(`${API_BASE}/sites`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    const select = document.getElementById('templateSite');
+                    select.innerHTML = '<option value="">All Sites</option>' +
+                        data.sites.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+                }
+            } catch (err) {
+                console.error('Error loading sites:', err);
+            }
+        }
+
+        function loadDefaultContactsIntoTemplate() {
+            const name = document.getElementById('default_contact_name')?.value || '';
+            const phone = document.getElementById('default_contact_phone')?.value || '';
+            const email = document.getElementById('default_contact_email')?.value || '';
+            const teams = document.getElementById('default_contact_teams')?.value || '';
+            
+            if (name) document.getElementById('templateContactName').value = name;
+            if (phone) document.getElementById('templateContactPhone').value = phone;
+            if (email) document.getElementById('templateContactEmail').value = email;
+            if (teams) document.getElementById('templateContactTeams').value = teams;
+        }
+
+        function showTemplateStatus(message, isError = false) {
+            const status = document.getElementById('templateStatus');
+            if (!status) return;
+            status.textContent = message;
+            status.className = 'status ' + (isError ? 'error' : 'success');
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 5000);
+        }
+
         // Tab switching
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -1112,82 +1188,6 @@
                 showStatus('Error loading template: ' + err.message, true);
             }
         };
-
-        function openTemplateModal(template = null) {
-            const modal = document.getElementById('templateModal');
-            const title = document.getElementById('templateModalTitle');
-            const form = document.getElementById('templateForm');
-            
-            if (template) {
-                title.textContent = 'Edit Template';
-                form.dataset.templateId = template.id;
-                document.getElementById('templateName').value = template.name || '';
-                document.getElementById('templateLevel').value = template.level || 'routine';
-                document.getElementById('templateSummary').value = template.summary || '';
-                document.getElementById('templateMessage').value = template.message || '';
-                document.getElementById('templateBgColor').value = template.background_color || '#B00020';
-                document.getElementById('templateFgColor').value = template.foreground_color || '#FFFFFF';
-                document.getElementById('templateContactName').value = template.alert_contact_name || '';
-                document.getElementById('templateContactPhone').value = template.alert_contact_phone || '';
-                document.getElementById('templateContactEmail').value = template.alert_contact_email || '';
-                document.getElementById('templateContactTeams').value = template.alert_contact_teams || '';
-                document.getElementById('templateBgPreview').style.background = template.background_color || '#B00020';
-                document.getElementById('templateFgPreview').style.background = template.foreground_color || '#FFFFFF';
-                
-                // Load sites and set selected
-                loadSitesForTemplate().then(() => {
-                    if (template.site) {
-                        document.getElementById('templateSite').value = template.site;
-                    }
-                });
-            } else {
-                title.textContent = 'Create Template';
-                form.dataset.templateId = '';
-                form.reset();
-                document.getElementById('templateBgColor').value = '#B00020';
-                document.getElementById('templateFgColor').value = '#FFFFFF';
-                document.getElementById('templateBgPreview').style.background = '#B00020';
-                document.getElementById('templateFgPreview').style.background = '#FFFFFF';
-                loadSitesForTemplate();
-                loadDefaultContactsIntoTemplate();
-            }
-            
-            modal.style.display = 'flex';
-        }
-
-        async function loadSitesForTemplate() {
-            try {
-                const res = await fetch(`${API_BASE}/sites`, { headers });
-                if (res.ok) {
-                    const data = await res.json();
-                    const select = document.getElementById('templateSite');
-                    select.innerHTML = '<option value="">All Sites</option>' +
-                        data.sites.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
-                }
-            } catch (err) {
-                console.error('Error loading sites:', err);
-            }
-        }
-
-        function loadDefaultContactsIntoTemplate() {
-            const name = document.getElementById('default_contact_name')?.value || '';
-            const phone = document.getElementById('default_contact_phone')?.value || '';
-            const email = document.getElementById('default_contact_email')?.value || '';
-            const teams = document.getElementById('default_contact_teams')?.value || '';
-            
-            if (name) document.getElementById('templateContactName').value = name;
-            if (phone) document.getElementById('templateContactPhone').value = phone;
-            if (email) document.getElementById('templateContactEmail').value = email;
-            if (teams) document.getElementById('templateContactTeams').value = teams;
-        }
-
-        function showTemplateStatus(message, isError = false) {
-            const status = document.getElementById('templateStatus');
-            status.textContent = message;
-            status.className = 'status ' + (isError ? 'error' : 'success');
-            status.style.display = 'block';
-            setTimeout(() => { status.style.display = 'none'; }, 5000);
-        }
 
         window.deleteTemplate = async function(templateId) {
             if (!confirm('Delete this template?')) return;
