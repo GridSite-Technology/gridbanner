@@ -1291,7 +1291,12 @@
                 if (template) {
                     // Switch to alerts tab and populate form
                     document.querySelector('[data-tab="alerts"]').click();
-                    populateFormFromTemplate(template);
+                    // Ensure audio files are loaded before populating form
+                    await loadAudioFiles();
+                    // Small delay to ensure form elements are ready
+                    setTimeout(() => {
+                        populateFormFromTemplate(template);
+                    }, 50);
                 }
             } catch (err) {
                 showStatus('Error loading template: ' + err.message, true);
