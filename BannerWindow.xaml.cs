@@ -231,6 +231,7 @@ namespace GridBanner
         private DateTime _lastClickTime = DateTime.MinValue;
         private int _clickCount = 0;
         private bool _permitTerminate = false;
+        private BannerMenuWindow? _currentMenuWindow = null;
         
         public bool PermitTerminate
         {
@@ -259,6 +260,15 @@ namespace GridBanner
         
         private void HandleTripleClick()
         {
+            // If menu is open, close it and return
+            if (_currentMenuWindow != null && _currentMenuWindow.IsVisible)
+            {
+                _currentMenuWindow.Close();
+                _currentMenuWindow = null;
+                _clickCount = 0;
+                return;
+            }
+            
             var now = DateTime.Now;
             var timeSinceLastClick = (now - _lastClickTime).TotalMilliseconds;
             
@@ -284,6 +294,12 @@ namespace GridBanner
         
         private void ShowMenu()
         {
+            // Close existing menu if open
+            if (_currentMenuWindow != null && _currentMenuWindow.IsVisible)
+            {
+                _currentMenuWindow.Close();
+            }
+            
             var menuWindow = new BannerMenuWindow
             {
                 PermitTerminate = _permitTerminate,
@@ -295,6 +311,10 @@ namespace GridBanner
             var screenPos = PointToScreen(mousePos);
             menuWindow.Left = screenPos.X;
             menuWindow.Top = screenPos.Y;
+            
+            // Track menu window and close it when it closes
+            _currentMenuWindow = menuWindow;
+            menuWindow.Closed += (s, e) => { _currentMenuWindow = null; };
             
             menuWindow.Show();
         }

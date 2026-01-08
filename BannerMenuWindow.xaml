@@ -28,7 +28,13 @@
                 Content="About"
                 Width="150"
                 Height="35"
+                Margin="0,0,0,5"
                 Click="AboutButton_Click"/>
+        <Button Name="CloseButton"
+                Content="Close Menu"
+                Width="150"
+                Height="35"
+                Click="CloseButton_Click"/>
     </StackPanel>
 </Window>
 

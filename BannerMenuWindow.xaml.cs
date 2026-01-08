@@ -65,17 +65,45 @@ namespace GridBanner
 
         private void AboutButton_Click(object sender, RoutedEventArgs e)
         {
+            var config = ConfigManager.LoadConfig();
+            
+            string GetConfigValue(string key, string defaultValue = "Not set")
+            {
+                return config.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) 
+                    ? value 
+                    : defaultValue;
+            }
+            
             var aboutMessage = "GridBanner\n\n" +
                               "Modern replacement for NetBanner.exe\n\n" +
                               "A multi-monitor banner application that displays user information, " +
                               "classification level, organization name, and device compliance status.\n\n" +
-                              "© GridSite Technology";
+                              "© GridSite Technology\n\n" +
+                              "Configuration:\n" +
+                              $"  Background Color: {GetConfigValue("background_color")}\n" +
+                              $"  Foreground Color: {GetConfigValue("foreground_color")}\n" +
+                              $"  Classification Level: {GetConfigValue("classification_level")}\n" +
+                              $"  Banner Height: {GetConfigValue("banner_height")}\n" +
+                              $"  Organization Name: {GetConfigValue("org_name", "Not set (auto-detected)")}\n" +
+                              $"  Site Name: {GetConfigValue("site_name")}\n" +
+                              $"  Compliance Check Enabled: {GetConfigValue("compliance_check_enabled")}\n" +
+                              $"  Compliance Status: {GetConfigValue("compliance_status")}\n" +
+                              $"  Compliance Command: {GetConfigValue("compliance_check_command")}\n" +
+                              $"  Permit Terminate: {GetConfigValue("permit_terminate")}\n" +
+                              $"  Alert File Location: {GetConfigValue("alert_file_location")}\n" +
+                              $"  Alert URL: {GetConfigValue("alert_url")}\n" +
+                              $"  Alert Poll Seconds: {GetConfigValue("alert_poll_seconds")}";
 
             MessageBox.Show(
                 aboutMessage,
                 "About GridBanner",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
+        }
+        
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
         }
     }
 }
