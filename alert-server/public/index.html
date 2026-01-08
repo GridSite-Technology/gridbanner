@@ -1345,13 +1345,34 @@
             document.getElementById('contact_phone').value = template.alert_contact_phone || '';
             document.getElementById('contact_email').value = template.alert_contact_email || '';
             document.getElementById('contact_teams').value = template.alert_contact_teams || '';
-            if (template.audio_file) {
-                document.getElementById('audioFile').value = template.audio_file;
-            } else {
-                document.getElementById('audioFile').value = '';
-            }
             document.getElementById('bgPreview').style.background = template.background_color;
             document.getElementById('fgPreview').style.background = template.foreground_color;
+            
+            // Handle audio file - wait for dropdown to be populated first
+            // Load audio files if not already loaded, then set the value
+            loadAudioFiles().then(() => {
+                const audioSelect = document.getElementById('audioFile');
+                if (audioSelect) {
+                    if (template.audio_file) {
+                        // Check if the audio file exists in the dropdown
+                        const optionExists = Array.from(audioSelect.options).some(opt => opt.value === template.audio_file);
+                        if (optionExists) {
+                            audioSelect.value = template.audio_file;
+                        } else {
+                            // Audio file might have been deleted, set to default
+                            audioSelect.value = '';
+                            console.warn('Template audio file not found:', template.audio_file);
+                        }
+                    } else {
+                        audioSelect.value = '';
+                    }
+                }
+            }).catch(err => {
+                console.error('Error loading audio files:', err);
+                // Set to empty if we can't load
+                const audioSelect = document.getElementById('audioFile');
+                if (audioSelect) audioSelect.value = '';
+            });
             
             // Handle site selection - template may have a site, but user can override
             if (template.site) {
