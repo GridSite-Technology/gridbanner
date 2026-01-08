@@ -8,10 +8,12 @@ const PORT = process.env.PORT || 3000;
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const ALERT_FILE = process.env.ALERT_FILE || path.join(__dirname, 'alerts', 'current.json');
 const DATA_FILE = path.join(__dirname, 'data.json');
+const AUDIO_DIR = path.join(__dirname, 'audio');
 
-// Ensure alerts directory exists
+// Ensure directories exist
 const alertsDir = path.dirname(ALERT_FILE);
 fs.mkdir(alertsDir, { recursive: true }).catch(() => {});
+fs.mkdir(AUDIO_DIR, { recursive: true }).catch(() => {});
 
 // In-memory data storage
 let dataStore = {
