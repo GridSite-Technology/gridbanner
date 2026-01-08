@@ -289,8 +289,22 @@
                 if (res.ok) {
                     return { valid: true };
                 } else {
-                    const err = await res.json();
-                    return { valid: false, error: err.error || 'Invalid admin key' };
+                    // Check if response is JSON
+                    const contentType = res.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        const err = await res.json();
+                        return { valid: false, error: err.error || 'Invalid admin key' };
+                    } else {
+                        // Response is not JSON (probably HTML error page)
+                        const text = await res.text();
+                        if (res.status === 401) {
+                            return { valid: false, error: 'Invalid admin key' };
+                        } else if (res.status === 404) {
+                            return { valid: false, error: 'API endpoint not found. Please ensure the server is running and up to date.' };
+                        } else {
+                            return { valid: false, error: `Server error (${res.status}). Please check the server logs.` };
+                        }
+                    }
                 }
             } catch (err) {
                 return { valid: false, error: 'Failed to connect to server: ' + err.message };

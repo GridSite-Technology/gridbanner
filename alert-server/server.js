@@ -41,10 +41,6 @@ async function saveAdminKey(key) {
 // Initialize admin key on startup
 loadAdminKey().catch(() => {});
 
-// Middleware
-app.use(bodyParser.json());
-app.use(express.static('public'));
-
 // Simple key authentication middleware
 function requireAdminKey(req, res, next) {
   const providedKey = req.headers['x-admin-key'] || req.query.admin_key;
@@ -57,6 +53,10 @@ function requireAdminKey(req, res, next) {
   next();
 }
 
+// Middleware
+app.use(bodyParser.json());
+
+// API routes (must be before static middleware)
 // GET /api/alert - Get current alert (public, for GridBanner clients)
 app.get('/api/alert', async (req, res) => {
   try {
@@ -168,6 +168,9 @@ app.get('/api/admin/key', requireAdminKey, async (req, res) => {
     key_length: ADMIN_KEY.length 
   });
 });
+
+// Static files (must be after API routes)
+app.use(express.static('public'));
 
 // Start server
 app.listen(PORT, async () => {
