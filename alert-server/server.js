@@ -146,10 +146,16 @@ app.post('/api/alert', async (req, res) => {
     const providedKey = req.headers['x-admin-key'];
     const isAdmin = providedKey && typeof providedKey === 'string' && providedKey.trim() === ADMIN_KEY;
     
-    // Check if this is system info reporting (has workstation_name but no admin key)
-    // Also check if it's missing alert fields (admin requests have level, summary, etc.)
-    const hasSystemInfo = req.body.workstation_name && !req.body.level && !req.body.summary;
-    if (!isAdmin && hasSystemInfo) {
+    // Check if this is system info reporting
+    // System info has workstation_name but NO alert fields (level, summary, etc.)
+    // Admin requests have alert fields (level, summary, message, etc.)
+    const hasSystemInfo = req.body.workstation_name && 
+                          !req.body.level && 
+                          !req.body.summary && 
+                          !req.body.message;
+    const isSystemReport = !isAdmin && hasSystemInfo;
+    
+    if (isSystemReport) {
       // Client reporting system info
       const systemInfo = {
         workstation_name: req.body.workstation_name || '',
