@@ -529,6 +529,19 @@
                     <button type="button" class="btn-primary" id="saveDefaultsBtn">Save Defaults</button>
                 </div>
             </div>
+
+            <div class="form-section" style="margin-top: 40px;">
+                <h3>Audio File Management</h3>
+                <p style="color: #666; margin-bottom: 16px; font-size: 14px;">Upload, rename, and delete custom audio files for alert notifications.</p>
+                
+                <div style="margin-bottom: 20px;">
+                    <button type="button" class="btn-primary" id="uploadAudioBtnSettings">+ Upload Audio File</button>
+                </div>
+
+                <input type="file" id="audioFileInputSettings" accept="audio/*" style="display: none;">
+                
+                <div id="audioListSettings" style="min-height: 200px;"></div>
+            </div>
         </div>
     </div>
     </div>
@@ -1226,7 +1239,10 @@
                 if (tabName === 'sites') loadSites();
                 if (tabName === 'systems') loadSystems();
                 if (tabName === 'audio') loadAudioFiles();
-                if (tabName === 'settings') loadSettings();
+                if (tabName === 'settings') {
+                    loadSettings();
+                    loadAudioFilesSettings(); // Load audio files for Settings tab
+                }
                 if (tabName === 'alerts') loadAudioFiles(); // Load audio files for alert form
             });
         });
