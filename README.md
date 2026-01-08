@@ -115,7 +115,17 @@ Simply run `GridBanner.exe`. The application will:
 - Reserve screen space (AppBar-style) so maximized windows appear below the banner
 - Read configuration from INI files
 
-To close the application, use Task Manager (Ctrl+Shift+Esc) and end the GridBanner process.
+### Triple-Click Menu
+
+Triple-click anywhere on the banner to open a menu with the following options:
+
+- **View Logs**: Opens the log file (`%USERPROFILE%\userdata\gridbanner\gridbanner.log`) in Notepad
+- **About**: Displays application information
+- **Terminate** (optional): Only shown if `permit_terminate = 1` in the config file. Allows users to terminate GridBanner with a confirmation dialog.
+
+**Note**: By default, the Terminate button is hidden for security. To enable it, set `permit_terminate = 1` in your config file.
+
+To close the application without the menu, use Task Manager (Ctrl+Shift+Esc) and end the GridBanner process.
 
 ## Site Name Display
 
