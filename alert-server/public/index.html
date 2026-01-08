@@ -796,8 +796,16 @@
             const newTemplateBtn = document.getElementById('newTemplateBtn');
             if (newTemplateBtn && !newTemplateBtn.dataset.listenerAttached) {
                 newTemplateBtn.dataset.listenerAttached = 'true';
-                newTemplateBtn.addEventListener('click', () => {
-                    openTemplateModal();
+                newTemplateBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('New Template button clicked');
+                    try {
+                        openTemplateModal();
+                    } catch (err) {
+                        console.error('Error opening template modal:', err);
+                        alert('Error opening template form: ' + err.message);
+                    }
                 });
             }
 
@@ -1020,13 +1028,20 @@
 
         // Template modal functions (defined early so they're accessible)
         function openTemplateModal(template = null) {
+            console.log('openTemplateModal called', template ? 'with template' : 'new template');
             const modal = document.getElementById('templateModal');
             if (!modal) {
                 console.error('Template modal not found!');
+                alert('Template modal not found in page. Please refresh.');
                 return;
             }
             const title = document.getElementById('templateModalTitle');
             const form = document.getElementById('templateForm');
+            if (!title || !form) {
+                console.error('Template modal elements not found!');
+                alert('Template form elements not found. Please refresh.');
+                return;
+            }
             
             if (template) {
                 title.textContent = 'Edit Template';
