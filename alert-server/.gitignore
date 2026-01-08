@@ -1,0 +1,5 @@
+node_modules/
+alerts/
+*.log
+.env
+

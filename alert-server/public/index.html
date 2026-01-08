@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GridBanner Alert Server - Admin</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a1a1a;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #333;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        .color-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .color-preview {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            margin-top: 8px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover { background: #c82333; }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover { background: #5a6268; }
+        .status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .current-alert {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .current-alert h3 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        .current-alert pre {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        @media (max-width: 768px) {
+            .grid, .color-group { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GridBanner Alert Server</h1>
+        <p class="subtitle">Centralized alert management for GridBanner workstations</p>
+
+        <div class="current-alert" id="currentAlert">
+            <h3>Current Alert</h3>
+            <pre id="currentAlertContent">Loading...</pre>
+        </div>
+
+        <form id="alertForm">
+            <div class="form-group">
+                <label for="level">Alert Level *</label>
+                <select id="level" required>
+                    <option value="routine">Routine</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="critical">Critical</option>
+                    <option value="super_critical">Super Critical</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="summary">Summary *</label>
+                <input type="text" id="summary" required placeholder="Brief alert summary">
+            </div>
+
+            <div class="form-group">
+                <label for="message">Message *</label>
+                <textarea id="message" required placeholder="Full alert message text"></textarea>
+            </div>
+
+            <div class="color-group">
+                <div class="form-group">
+                    <label for="background_color">Background Color *</label>
+                    <input type="text" id="background_color" required value="#B00020" placeholder="#FF0000">
+                    <div class="color-preview" id="bgPreview" style="background: #B00020;"></div>
+                </div>
+                <div class="form-group">
+                    <label for="foreground_color">Foreground Color *</label>
+                    <input type="text" id="foreground_color" required value="#FFFFFF" placeholder="#FFFFFF">
+                    <div class="color-preview" id="fgPreview" style="background: #FFFFFF;"></div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="form-group">
+                    <label for="contact_name">Contact Name</label>
+                    <input type="text" id="contact_name" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                    <label for="contact_phone">Contact Phone</label>
+                    <input type="text" id="contact_phone" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                    <label for="contact_email">Contact Email</label>
+                    <input type="email" id="contact_email" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                    <label for="contact_teams">Contact Teams</label>
+                    <input type="text" id="contact_teams" placeholder="Optional (msteams: or https://)">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="site">Site (optional)</label>
+                <input type="text" id="site" placeholder="Leave empty for all sites, or specify site name">
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn-primary">Update Alert</button>
+                <button type="button" class="btn-danger" id="clearBtn">Clear Alert</button>
+                <button type="button" class="btn-secondary" id="refreshBtn">Refresh</button>
+            </div>
+        </form>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        const ADMIN_KEY = new URLSearchParams(window.location.search).get('key') || prompt('Enter admin key:');
+        if (!ADMIN_KEY) {
+            alert('Admin key required');
+            window.location.reload();
+        }
+
+        const API_BASE = '/api';
+        const headers = { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY };
+
+        // Color preview updates
+        document.getElementById('background_color').addEventListener('input', (e) => {
+            document.getElementById('bgPreview').style.background = e.target.value;
+        });
+        document.getElementById('foreground_color').addEventListener('input', (e) => {
+            document.getElementById('fgPreview').style.background = e.target.value;
+        });
+
+        // Load current alert
+        async function loadCurrentAlert() {
+            try {
+                const res = await fetch(`${API_BASE}/alert`);
+                if (res.status === 204) {
+                    document.getElementById('currentAlertContent').textContent = 'No active alert';
+                    return null;
+                }
+                const alert = await res.json();
+                document.getElementById('currentAlertContent').textContent = JSON.stringify(alert, null, 2);
+                return alert;
+            } catch (err) {
+                document.getElementById('currentAlertContent').textContent = 'Error: ' + err.message;
+                return null;
+            }
+        }
+
+        // Populate form from alert
+        function populateForm(alert) {
+            if (!alert) return;
+            document.getElementById('level').value = alert.level || 'routine';
+            document.getElementById('summary').value = alert.summary || '';
+            document.getElementById('message').value = alert.message || '';
+            document.getElementById('background_color').value = alert.background_color || '#B00020';
+            document.getElementById('foreground_color').value = alert.foreground_color || '#FFFFFF';
+            document.getElementById('contact_name').value = alert.alert_contact_name || '';
+            document.getElementById('contact_phone').value = alert.alert_contact_phone || '';
+            document.getElementById('contact_email').value = alert.alert_contact_email || '';
+            document.getElementById('contact_teams').value = alert.alert_contact_teams || '';
+            document.getElementById('site').value = alert.site || '';
+            
+            document.getElementById('bgPreview').style.background = alert.background_color || '#B00020';
+            document.getElementById('fgPreview').style.background = alert.foreground_color || '#FFFFFF';
+        }
+
+        // Show status message
+        function showStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + (isError ? 'error' : 'success');
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 5000);
+        }
+
+        // Form submit
+        document.getElementById('alertForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const alert = {
+                level: document.getElementById('level').value,
+                summary: document.getElementById('summary').value,
+                message: document.getElementById('message').value,
+                background_color: document.getElementById('background_color').value,
+                foreground_color: document.getElementById('foreground_color').value
+            };
+
+            const contactName = document.getElementById('contact_name').value.trim();
+            const contactPhone = document.getElementById('contact_phone').value.trim();
+            const contactEmail = document.getElementById('contact_email').value.trim();
+            const contactTeams = document.getElementById('contact_teams').value.trim();
+            const site = document.getElementById('site').value.trim();
+
+            if (contactName) alert.alert_contact_name = contactName;
+            if (contactPhone) alert.alert_contact_phone = contactPhone;
+            if (contactEmail) alert.alert_contact_email = contactEmail;
+            if (contactTeams) alert.alert_contact_teams = contactTeams;
+            if (site) alert.site = site;
+
+            try {
+                const res = await fetch(`${API_BASE}/alert`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(alert)
+                });
+
+                if (res.ok) {
+                    showStatus('Alert updated successfully');
+                    await loadCurrentAlert();
+                } else {
+                    const err = await res.json();
+                    showStatus('Error: ' + (err.error || 'Failed to update alert'), true);
+                }
+            } catch (err) {
+                showStatus('Error: ' + err.message, true);
+            }
+        });
+
+        // Clear alert
+        document.getElementById('clearBtn').addEventListener('click', async () => {
+            if (!confirm('Clear the current alert?')) return;
+            try {
+                const res = await fetch(`${API_BASE}/alert`, {
+                    method: 'DELETE',
+                    headers
+                });
+
+                if (res.ok) {
+                    showStatus('Alert cleared');
+                    await loadCurrentAlert();
+                    document.getElementById('alertForm').reset();
+                } else {
+                    const err = await res.json();
+                    showStatus('Error: ' + (err.error || 'Failed to clear alert'), true);
+                }
+            } catch (err) {
+                showStatus('Error: ' + err.message, true);
+            }
+        });
+
+        // Refresh
+        document.getElementById('refreshBtn').addEventListener('click', async () => {
+            const alert = await loadCurrentAlert();
+            populateForm(alert);
+        });
+
+        // Initial load
+        (async () => {
+            const alert = await loadCurrentAlert();
+            populateForm(alert);
+        })();
+    </script>
+</body>
+</html>
+
