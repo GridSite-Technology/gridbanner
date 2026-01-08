@@ -226,6 +226,17 @@ namespace GridBanner
         private bool _appBarRegistered;
         private int _appBarCallbackMessage;
         private HwndSource? _hwndSource;
+        
+        // Triple-click detection
+        private DateTime _lastClickTime = DateTime.MinValue;
+        private int _clickCount = 0;
+        private bool _permitTerminate = false;
+        
+        public bool PermitTerminate
+        {
+            get => _permitTerminate;
+            set => _permitTerminate = value;
+        }
 
         public BannerWindow()
         {

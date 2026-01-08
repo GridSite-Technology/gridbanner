@@ -89,6 +89,10 @@ compliance_status = 0
 ; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.
 ; Example: compliance_check_command = powershell.exe -NoProfile -Command "exit 0"
 compliance_check_command =
+
+; Optional: permit user termination via triple-click menu (default: 0 = false)
+; Set to 1 to allow users to terminate GridBanner from the banner menu
+permit_terminate = 0
 ```
 
 ### Configuration Options

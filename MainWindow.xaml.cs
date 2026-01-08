@@ -157,6 +157,9 @@ namespace GridBanner
                 var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
                 var alertServerConfigured = !string.IsNullOrWhiteSpace(alertUrl);
 
+                // Check for permit_terminate config option
+                var permitTerminate = ParseInt(config.GetValueOrDefault("permit_terminate", "0"), 0) == 1;
+                
                 CreateOrRefreshBanners(
                     computerName,
                     username,
@@ -168,7 +171,8 @@ namespace GridBanner
                     bannerHeight,
                     complianceEnabled,
                     complianceStatus,
-                    alertServerConfigured);
+                    alertServerConfigured,
+                    permitTerminate);
 
                 // Alert overlays (optional; configured via conf.ini)
                 SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel, backgroundColor, foregroundColor, complianceStatus);
@@ -197,7 +201,8 @@ namespace GridBanner
             double bannerHeight,
             bool complianceEnabled,
             int complianceStatus,
-            bool alertServerConfigured = false)
+            bool alertServerConfigured = false,
+            bool permitTerminate = false)
         {
             CloseAllBanners();
 
@@ -228,7 +233,8 @@ namespace GridBanner
                         ForegroundColor = new SolidColorBrush(foregroundColor),
                         BannerHeight = bannerHeight,
                         ComplianceEnabled = complianceEnabled,
-                        ComplianceStatus = complianceStatus
+                        ComplianceStatus = complianceStatus,
+                        PermitTerminate = permitTerminate
                     };
 
                     bannerWindow.SetScreen(screen);
