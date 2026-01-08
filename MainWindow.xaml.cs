@@ -268,13 +268,16 @@ namespace GridBanner
 
             var siteNames = config.GetValueOrDefault("site_name", string.Empty).Trim();
             
-            // Prepare system info for reporting
+            // Prepare system info for reporting (complianceStatus already calculated above)
             var systemInfo = new AlertManager.SystemInfo(
                 WorkstationName: computerName,
                 Username: username,
                 Classification: classificationLevel,
                 Location: siteNames,  // Use site names as location
-                Company: orgName
+                Company: orgName,
+                BackgroundColor: backgroundColor.ToString(),
+                ForegroundColor: foregroundColor.ToString(),
+                ComplianceStatus: complianceStatus
             );
             
             _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames, systemInfo);

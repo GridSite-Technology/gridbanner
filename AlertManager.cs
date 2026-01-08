@@ -44,7 +44,10 @@ namespace GridBanner
             string Username,
             string Classification,
             string Location,
-            string Company
+            string Company,
+            string BackgroundColor,
+            string ForegroundColor,
+            int ComplianceStatus
         );
 
         public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null, SystemInfo? systemInfo = null)
@@ -207,7 +210,10 @@ namespace GridBanner
                         username = _systemInfo.Username,
                         classification = _systemInfo.Classification,
                         location = _systemInfo.Location,
-                        company = _systemInfo.Company
+                        company = _systemInfo.Company,
+                        background_color = _systemInfo.BackgroundColor,
+                        foreground_color = _systemInfo.ForegroundColor,
+                        compliance_status = _systemInfo.ComplianceStatus
                     }, _jsonOptions);
 
                     using var req = new HttpRequestMessage(HttpMethod.Post, url);

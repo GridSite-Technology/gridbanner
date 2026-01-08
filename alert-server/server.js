@@ -162,7 +162,10 @@ app.post('/api/alert', async (req, res) => {
         username: req.body.username || '',
         classification: req.body.classification || '',
         location: req.body.location || '',
-        company: req.body.company || ''
+        company: req.body.company || '',
+        background_color: req.body.background_color || '#FFA500',
+        foreground_color: req.body.foreground_color || '#FFFFFF',
+        compliance_status: req.body.compliance_status !== undefined ? req.body.compliance_status : 0
       };
       
       // Update system info

@@ -396,26 +396,96 @@
 
         <!-- Systems Tab -->
         <div id="tab-systems" class="tab-content">
-            <h2>Systems</h2>
-            <div style="margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div>
+                    <h2 style="margin-bottom: 4px;">Systems</h2>
+                    <p style="color: #666; font-size: 14px; margin: 0;">Monitor all GridBanner workstations</p>
+                </div>
                 <button type="button" class="btn-secondary" id="refreshSystemsBtn">Refresh</button>
             </div>
-            <div style="overflow-x: auto;">
-                <table id="systemsTable">
+
+            <!-- Filters -->
+            <div class="form-section" style="margin-bottom: 20px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; align-items: end;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="filterWorkstation" style="font-size: 12px; font-weight: 600;">Filter Workstation</label>
+                        <input type="text" id="filterWorkstation" placeholder="Search..." style="font-size: 13px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="filterCompany" style="font-size: 12px; font-weight: 600;">Filter Company</label>
+                        <input type="text" id="filterCompany" placeholder="Search..." style="font-size: 13px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="filterSite" style="font-size: 12px; font-weight: 600;">Filter Site</label>
+                        <input type="text" id="filterSite" placeholder="Search..." style="font-size: 13px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="filterCompliance" style="font-size: 12px; font-weight: 600;">Compliance</label>
+                        <select id="filterCompliance" style="font-size: 13px;">
+                            <option value="">All</option>
+                            <option value="1">Compliant</option>
+                            <option value="0">Not Compliant</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button type="button" class="btn-secondary btn-small" id="clearFiltersBtn">Clear Filters</button>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div style="overflow-x: auto; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                <table id="systemsTable" style="margin: 0;">
                     <thead>
-                        <tr>
-                            <th>Workstation</th>
-                            <th>Username</th>
-                            <th>Company</th>
-                            <th>Classification</th>
-                            <th>Location</th>
-                            <th>Last Seen</th>
+                        <tr style="background: #f8f9fa;">
+                            <th style="cursor: pointer; user-select: none;" data-sort="workstation_name">
+                                Workstation <span class="sort-indicator"></span>
+                            </th>
+                            <th style="cursor: pointer; user-select: none;" data-sort="username">
+                                Username <span class="sort-indicator"></span>
+                            </th>
+                            <th style="cursor: pointer; user-select: none;" data-sort="company">
+                                Company <span class="sort-indicator"></span>
+                            </th>
+                            <th style="cursor: pointer; user-select: none;" data-sort="classification">
+                                Classification <span class="sort-indicator"></span>
+                            </th>
+                            <th style="cursor: pointer; user-select: none;" data-sort="location">
+                                Location <span class="sort-indicator"></span>
+                            </th>
+                            <th style="cursor: pointer; user-select: none;" data-sort="compliance_status">
+                                Compliance <span class="sort-indicator"></span>
+                            </th>
+                            <th style="cursor: pointer; user-select: none;" data-sort="last_seen">
+                                Last Seen <span class="sort-indicator"></span>
+                            </th>
                         </tr>
                     </thead>
                     <tbody id="systemsTableBody">
-                        <tr><td colspan="6">Loading...</td></tr>
+                        <tr><td colspan="7" style="text-align: center; padding: 40px; color: #666;">Loading...</td></tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Pagination -->
+            <div id="systemsPagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <div style="color: #666; font-size: 14px;">
+                    Showing <span id="systemsShowing">0</span> of <span id="systemsTotal">0</span> systems
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button type="button" class="btn-secondary btn-small" id="systemsPrevBtn" disabled>Previous</button>
+                    <span id="systemsPageInfo" style="font-size: 14px; color: #333;">Page 1</span>
+                    <button type="button" class="btn-secondary btn-small" id="systemsNextBtn" disabled>Next</button>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <label style="font-size: 14px; color: #666;">Per page:</label>
+                    <select id="systemsPerPage" style="font-size: 13px; padding: 4px 8px;">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
             </div>
         </div>
 
@@ -1371,7 +1441,13 @@
             }
         };
 
-        // Systems monitoring
+        // Systems monitoring with filtering, sorting, and pagination
+        let allSystems = [];
+        let filteredSystems = [];
+        let currentPage = 1;
+        let systemsPerPage = 25;
+        let currentSort = { field: 'last_seen', direction: 'desc' };
+
         async function loadSystems() {
             try {
                 const res = await fetch(`${API_BASE}/systems`, { headers });
@@ -1380,41 +1456,162 @@
                     return;
                 }
                 const data = await res.json();
-                const systems = data.systems || [];
-                renderSystems(systems);
-                if (systems.length === 0) {
-                    document.getElementById('systemsTableBody').innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666; padding: 20px;">No systems have reported in yet. Make sure GridBanner clients are running and polling the server.</td></tr>';
-                }
+                allSystems = data.systems || [];
+                applyFiltersAndRender();
             } catch (err) {
-                document.getElementById('systemsTableBody').innerHTML = '<tr><td colspan="6" style="color: #dc3545;">Error loading systems: ' + err.message + '</td></tr>';
+                document.getElementById('systemsTableBody').innerHTML = '<tr><td colspan="7" style="color: #dc3545; text-align: center; padding: 20px;">Error loading systems: ' + err.message + '</td></tr>';
             }
+        }
+
+        function applyFiltersAndRender() {
+            // Apply filters
+            const filterWorkstation = document.getElementById('filterWorkstation').value.toLowerCase();
+            const filterCompany = document.getElementById('filterCompany').value.toLowerCase();
+            const filterSite = document.getElementById('filterSite').value.toLowerCase();
+            const filterCompliance = document.getElementById('filterCompliance').value;
+
+            filteredSystems = allSystems.filter(s => {
+                const workstationMatch = !filterWorkstation || (s.workstation_name || '').toLowerCase().includes(filterWorkstation);
+                const companyMatch = !filterCompany || (s.company || '').toLowerCase().includes(filterCompany);
+                const siteMatch = !filterSite || (s.location || '').toLowerCase().includes(filterSite);
+                const complianceMatch = filterCompliance === '' || String(s.compliance_status || 0) === filterCompliance;
+                return workstationMatch && companyMatch && siteMatch && complianceMatch;
+            });
+
+            // Apply sorting
+            filteredSystems.sort((a, b) => {
+                let aVal, bVal;
+                switch (currentSort.field) {
+                    case 'workstation_name':
+                        aVal = (a.workstation_name || '').toLowerCase();
+                        bVal = (b.workstation_name || '').toLowerCase();
+                        break;
+                    case 'username':
+                        aVal = (a.username || '').toLowerCase();
+                        bVal = (b.username || '').toLowerCase();
+                        break;
+                    case 'company':
+                        aVal = (a.company || '').toLowerCase();
+                        bVal = (b.company || '').toLowerCase();
+                        break;
+                    case 'classification':
+                        aVal = (a.classification || '').toLowerCase();
+                        bVal = (b.classification || '').toLowerCase();
+                        break;
+                    case 'location':
+                        aVal = (a.location || '').toLowerCase();
+                        bVal = (b.location || '').toLowerCase();
+                        break;
+                    case 'compliance_status':
+                        aVal = a.compliance_status || 0;
+                        bVal = b.compliance_status || 0;
+                        break;
+                    case 'last_seen':
+                    default:
+                        aVal = a.last_seen ? new Date(a.last_seen).getTime() : 0;
+                        bVal = b.last_seen ? new Date(b.last_seen).getTime() : 0;
+                        break;
+                }
+                
+                if (aVal < bVal) return currentSort.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // Update pagination
+            const totalPages = Math.ceil(filteredSystems.length / systemsPerPage);
+            if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            // Get page data
+            const startIdx = (currentPage - 1) * systemsPerPage;
+            const endIdx = startIdx + systemsPerPage;
+            const pageSystems = filteredSystems.slice(startIdx, endIdx);
+
+            renderSystems(pageSystems);
+            updatePagination(filteredSystems.length, totalPages);
+            updateSortIndicators();
         }
 
         function renderSystems(systems) {
             const tbody = document.getElementById('systemsTableBody');
             if (systems.length === 0) {
-                return; // Already handled in loadSystems
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #666; padding: 40px;">No systems match the current filters.</td></tr>';
+                return;
             }
-            // Sort by last_seen (most recent first)
-            systems.sort((a, b) => {
-                const aTime = a.last_seen ? new Date(a.last_seen).getTime() : 0;
-                const bTime = b.last_seen ? new Date(b.last_seen).getTime() : 0;
-                return bTime - aTime;
-            });
+
             tbody.innerHTML = systems.map(s => {
                 const lastSeen = s.last_seen ? new Date(s.last_seen).toLocaleString() : 'Never';
                 const timeAgo = s.last_seen ? getTimeAgo(new Date(s.last_seen)) : '';
+                
+                // Parse location (comma-separated sites)
+                const locations = (s.location || '').split(',').map(l => l.trim()).filter(l => l);
+                const primaryLocation = locations[0] || 'Unknown';
+                const additionalLocations = locations.slice(1);
+                const locationDisplay = additionalLocations.length > 0 
+                    ? `${primaryLocation} <span style="background: #667eea; color: white; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: bold; margin-left: 6px;">+${additionalLocations.length}</span>`
+                    : primaryLocation;
+                const locationTooltip = additionalLocations.length > 0
+                    ? `Primary Site: ${primaryLocation}\n\nAdditional Site(s):\n${additionalLocations.join('\n')}`
+                    : '';
+
+                // Classification with colors
+                const bgColor = s.background_color || '#FFA500';
+                const fgColor = s.foreground_color || '#FFFFFF';
+                
+                // Compliance status
+                const complianceStatus = s.compliance_status !== undefined ? s.compliance_status : 0;
+                const complianceText = complianceStatus === 1 ? 'Compliant' : 'Not Compliant';
+                const complianceBg = complianceStatus === 1 ? '#28a745' : '#dc3545';
+                
                 return `
-                    <tr>
-                        <td><strong>${s.workstation_name || 'Unknown'}</strong></td>
-                        <td>${s.username || 'Unknown'}</td>
-                        <td>${s.company || 'Unknown'}</td>
-                        <td>${s.classification || 'Unknown'}</td>
-                        <td>${s.location || 'Unknown'}</td>
-                        <td>${lastSeen}${timeAgo ? '<br><small style="color: #666;">' + timeAgo + '</small>' : ''}</td>
+                    <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="padding: 12px;"><strong>${s.workstation_name || 'Unknown'}</strong></td>
+                        <td style="padding: 12px;">${s.username || 'Unknown'}</td>
+                        <td style="padding: 12px;">${s.company || 'Unknown'}</td>
+                        <td style="padding: 12px;">
+                            <span style="background: ${bgColor}; color: ${fgColor}; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; display: inline-block;">
+                                ${s.classification || 'Unknown'}
+                            </span>
+                        </td>
+                        <td style="padding: 12px;" ${locationTooltip ? `title="${locationTooltip}"` : ''}>
+                            ${locationDisplay}
+                        </td>
+                        <td style="padding: 12px;">
+                            <span style="background: ${complianceBg}; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; display: inline-block;">
+                                ${complianceText}
+                            </span>
+                        </td>
+                        <td style="padding: 12px; font-size: 13px;">
+                            ${lastSeen}${timeAgo ? '<br><small style="color: #666;">' + timeAgo + '</small>' : ''}
+                        </td>
                     </tr>
                 `;
             }).join('');
+        }
+
+        function updatePagination(total, totalPages) {
+            document.getElementById('systemsShowing').textContent = 
+                filteredSystems.length === 0 ? '0' : 
+                `${(currentPage - 1) * systemsPerPage + 1}-${Math.min(currentPage * systemsPerPage, total)}`;
+            document.getElementById('systemsTotal').textContent = total;
+            document.getElementById('systemsPageInfo').textContent = `Page ${currentPage} of ${totalPages || 1}`;
+            
+            document.getElementById('systemsPrevBtn').disabled = currentPage <= 1;
+            document.getElementById('systemsNextBtn').disabled = currentPage >= totalPages;
+        }
+
+        function updateSortIndicators() {
+            document.querySelectorAll('#systemsTable th[data-sort]').forEach(th => {
+                const indicator = th.querySelector('.sort-indicator');
+                if (th.dataset.sort === currentSort.field) {
+                    indicator.textContent = currentSort.direction === 'asc' ? ' ▲' : ' ▼';
+                    indicator.style.color = '#007bff';
+                } else {
+                    indicator.textContent = ' ↕';
+                    indicator.style.color = '#ccc';
+                }
+            });
         }
 
         function getTimeAgo(date) {
@@ -1454,7 +1651,74 @@
         // New template button, Save as template - moved to attachEventListeners
 
         // Refresh systems button
-        document.getElementById('refreshSystemsBtn').addEventListener('click', loadSystems);
+        const refreshSystemsBtn = document.getElementById('refreshSystemsBtn');
+        if (refreshSystemsBtn) {
+            refreshSystemsBtn.addEventListener('click', loadSystems);
+        }
+
+        // Systems filtering, sorting, and pagination
+        const filterWorkstation = document.getElementById('filterWorkstation');
+        const filterCompany = document.getElementById('filterCompany');
+        const filterSite = document.getElementById('filterSite');
+        const filterCompliance = document.getElementById('filterCompliance');
+        const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+        const systemsPrevBtn = document.getElementById('systemsPrevBtn');
+        const systemsNextBtn = document.getElementById('systemsNextBtn');
+        const systemsPerPageSelect = document.getElementById('systemsPerPage');
+
+        if (filterWorkstation) filterWorkstation.addEventListener('input', applyFiltersAndRender);
+        if (filterCompany) filterCompany.addEventListener('input', applyFiltersAndRender);
+        if (filterSite) filterSite.addEventListener('input', applyFiltersAndRender);
+        if (filterCompliance) filterCompliance.addEventListener('change', applyFiltersAndRender);
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', () => {
+                if (filterWorkstation) filterWorkstation.value = '';
+                if (filterCompany) filterCompany.value = '';
+                if (filterSite) filterSite.value = '';
+                if (filterCompliance) filterCompliance.value = '';
+                currentPage = 1;
+                applyFiltersAndRender();
+            });
+        }
+        if (systemsPrevBtn) {
+            systemsPrevBtn.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    applyFiltersAndRender();
+                }
+            });
+        }
+        if (systemsNextBtn) {
+            systemsNextBtn.addEventListener('click', () => {
+                const totalPages = Math.ceil(filteredSystems.length / systemsPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    applyFiltersAndRender();
+                }
+            });
+        }
+        if (systemsPerPageSelect) {
+            systemsPerPageSelect.addEventListener('change', (e) => {
+                systemsPerPage = parseInt(e.target.value);
+                currentPage = 1;
+                applyFiltersAndRender();
+            });
+        }
+
+        // Column sorting
+        document.querySelectorAll('#systemsTable th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const field = th.dataset.sort;
+                if (currentSort.field === field) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.field = field;
+                    currentSort.direction = 'asc';
+                }
+                currentPage = 1;
+                applyFiltersAndRender();
+            });
+        });
 
         // Settings tab functions
         async function loadSettings() {
