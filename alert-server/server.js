@@ -17,7 +17,13 @@ fs.mkdir(alertsDir, { recursive: true }).catch(() => {});
 let dataStore = {
   systems: {},  // Key: workstation_name, Value: { last_seen, workstation_name, username, classification, location, company }
   sites: [],   // Array of { id, name }
-  templates: [] // Array of { id, name, level, summary, message, background_color, foreground_color, site, contact fields }
+  templates: [], // Array of { id, name, level, summary, message, background_color, foreground_color, site, contact fields }
+  settings: {   // Default settings
+    default_contact_name: '',
+    default_contact_phone: '',
+    default_contact_email: '',
+    default_contact_teams: ''
+  }
 };
 
 // Load data store from file
@@ -29,12 +35,28 @@ async function loadDataStore() {
     if (!dataStore.systems) dataStore.systems = {};
     if (!dataStore.sites) dataStore.sites = [];
     if (!dataStore.templates) dataStore.templates = [];
+    if (!dataStore.settings) dataStore.settings = {
+      default_contact_name: '',
+      default_contact_phone: '',
+      default_contact_email: '',
+      default_contact_teams: ''
+    };
   } catch (err) {
     if (err.code !== 'ENOENT') {
       console.error('Error loading data store:', err);
     }
     // Use defaults
-    dataStore = { systems: {}, sites: [], templates: [] };
+    dataStore = { 
+      systems: {}, 
+      sites: [], 
+      templates: [],
+      settings: {
+        default_contact_name: '',
+        default_contact_phone: '',
+        default_contact_email: '',
+        default_contact_teams: ''
+      }
+    };
   }
 }
 
@@ -144,6 +166,8 @@ app.post('/api/alert', async (req, res) => {
       
       // Save data store (async, don't wait)
       saveDataStore().catch(() => {});
+      
+      console.log(`System reported: ${key} (${systemInfo.username}@${systemInfo.company})`);
       
       // Return current alert (if any)
       try {
@@ -436,6 +460,39 @@ app.delete('/api/templates/:id', requireAdminKey, async (req, res) => {
   } catch (err) {
     console.error('Error deleting template:', err);
     res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
+// GET /api/settings - Get settings (admin only)
+app.get('/api/settings', requireAdminKey, async (req, res) => {
+  try {
+    res.json(dataStore.settings || {});
+  } catch (err) {
+    console.error('Error getting settings:', err);
+    res.status(500).json({ error: 'Failed to get settings' });
+  }
+});
+
+// POST /api/settings - Update settings (admin only)
+app.post('/api/settings', requireAdminKey, async (req, res) => {
+  try {
+    const { default_contact_name, default_contact_phone, default_contact_email, default_contact_teams } = req.body;
+    
+    if (!dataStore.settings) {
+      dataStore.settings = {};
+    }
+    
+    if (default_contact_name !== undefined) dataStore.settings.default_contact_name = default_contact_name || '';
+    if (default_contact_phone !== undefined) dataStore.settings.default_contact_phone = default_contact_phone || '';
+    if (default_contact_email !== undefined) dataStore.settings.default_contact_email = default_contact_email || '';
+    if (default_contact_teams !== undefined) dataStore.settings.default_contact_teams = default_contact_teams || '';
+    
+    await saveDataStore();
+    
+    res.json({ success: true, settings: dataStore.settings });
+  } catch (err) {
+    console.error('Error updating settings:', err);
+    res.status(500).json({ error: 'Failed to update settings' });
   }
 });
 

@@ -112,8 +112,19 @@ namespace GridBanner
                     return string.Empty;
                 }
 
-                // Skip first site (already shown), list the rest
-                return string.Join(", ", sites.Skip(1));
+                // Format: Primary Site: [first], then Additional Site(s): [rest]
+                var primary = sites[0];
+                var additional = sites.Skip(1).ToList();
+                
+                var tooltip = $"Primary Site:{Environment.NewLine}{primary}";
+                
+                if (additional.Count > 0)
+                {
+                    tooltip += $"{Environment.NewLine}{Environment.NewLine}Additional Site(s):{Environment.NewLine}";
+                    tooltip += string.Join(Environment.NewLine, additional);
+                }
+                
+                return tooltip;
             }
         }
 
