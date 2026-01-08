@@ -231,12 +231,19 @@ namespace GridBanner
         private DateTime _lastClickTime = DateTime.MinValue;
         private int _clickCount = 0;
         private bool _permitTerminate = false;
+        private bool _tripleClickMenuEnabled = true;
         private BannerMenuWindow? _currentMenuWindow = null;
         
         public bool PermitTerminate
         {
             get => _permitTerminate;
             set => _permitTerminate = value;
+        }
+        
+        public bool TripleClickMenuEnabled
+        {
+            get => _tripleClickMenuEnabled;
+            set => _tripleClickMenuEnabled = value;
         }
 
         public BannerWindow()
@@ -260,6 +267,12 @@ namespace GridBanner
         
         private void HandleTripleClick()
         {
+            // If triple-click menu is disabled, do nothing
+            if (!_tripleClickMenuEnabled)
+            {
+                return;
+            }
+            
             // If menu is open, close it and return
             if (_currentMenuWindow != null && _currentMenuWindow.IsVisible)
             {

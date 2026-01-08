@@ -157,8 +157,9 @@ namespace GridBanner
                 var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
                 var alertServerConfigured = !string.IsNullOrWhiteSpace(alertUrl);
 
-                // Check for permit_terminate config option
+                // Check for permit_terminate and disable_triple_click_menu config options
                 var permitTerminate = ParseInt(config.GetValueOrDefault("permit_terminate", "0"), 0) == 1;
+                var tripleClickMenuEnabled = ParseInt(config.GetValueOrDefault("disable_triple_click_menu", "0"), 0) == 0;
                 
                 CreateOrRefreshBanners(
                     computerName,
@@ -172,7 +173,8 @@ namespace GridBanner
                     complianceEnabled,
                     complianceStatus,
                     alertServerConfigured,
-                    permitTerminate);
+                    permitTerminate,
+                    tripleClickMenuEnabled);
 
                 // Alert overlays (optional; configured via conf.ini)
                 SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel, backgroundColor, foregroundColor, complianceStatus);
@@ -202,7 +204,8 @@ namespace GridBanner
             bool complianceEnabled,
             int complianceStatus,
             bool alertServerConfigured = false,
-            bool permitTerminate = false)
+            bool permitTerminate = false,
+            bool tripleClickMenuEnabled = true)
         {
             CloseAllBanners();
 
@@ -234,7 +237,8 @@ namespace GridBanner
                         BannerHeight = bannerHeight,
                         ComplianceEnabled = complianceEnabled,
                         ComplianceStatus = complianceStatus,
-                        PermitTerminate = permitTerminate
+                        PermitTerminate = permitTerminate,
+                        TripleClickMenuEnabled = tripleClickMenuEnabled
                     };
 
                     bannerWindow.SetScreen(screen);

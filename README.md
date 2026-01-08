@@ -90,8 +90,10 @@ compliance_status = 0
 ; Example: compliance_check_command = powershell.exe -NoProfile -Command "exit 0"
 compliance_check_command =
 
-; Optional: permit user termination via triple-click menu (default: 0 = false)
-; Set to 1 to allow users to terminate GridBanner from the banner menu
+; Triple-click menu settings
+; disable_triple_click_menu: 1=disable menu (no triple-click), 0=enable menu (default)
+disable_triple_click_menu = 0
+; permit_terminate: 1=show Terminate button in menu, 0=hide Terminate button (default)
 permit_terminate = 0
 ```
 
@@ -106,6 +108,8 @@ permit_terminate = 0
 - **compliance_check_enabled**: `1` to show the badge, `0` to hide it (default: `1`)
 - **compliance_status**: `1` for compliant (green) / `0` for NOT compliant (red) (default: `0`)
 - **compliance_check_command**: Optional command to run at startup; exit code `0` is treated as compliant. If the command is missing/fails/times out, GridBanner treats the device as **NOT compliant** (default: empty)
+- **disable_triple_click_menu**: `1` to disable the triple-click menu entirely, `0` to enable it (default: `0` = enabled)
+- **permit_terminate**: `1` to allow users to terminate GridBanner from the triple-click menu, `0` to hide the Terminate button (default: `0`)
 
 ## Usage
 
