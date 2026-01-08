@@ -1,29 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="BannerManager"
     Manufacturer="GridSite Technology"
     Version="1.0.0"
     UpgradeCode="{3D9B83D6-91C1-4F53-8F1C-3F9B3D3A1B6E}"
     Language="1033"
-    Scope="perMachine">
+    Scope="perMachine"
+    Compressed="yes">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of BannerManager is already installed." />
-    <MediaTemplate />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- UI + EULA -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="..\assets\license.rtf" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+
+    <!-- Silent installs must pass ACCEPTEULA=1 -->
+    <Property Id="ACCEPTEULA" Secure="yes" />
+    <Launch Condition="UILevel &gt;= 3 OR ACCEPTEULA = 1"
+            Message="You must accept the license agreement. For silent installs, pass ACCEPTEULA=1." />
 
     <Feature Id="MainFeature" Title="BannerManager" Level="1">
-      <ComponentRef Id="BannerManagerExe" />
+      <ComponentGroupRef Id="BannerManagerPublishedFiles" />
+      <ComponentRef Id="BannerManagerStartMenuShortcut" />
     </Feature>
 
-    <StandardDirectory Id="ProgramFilesFolder">
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLROOT" Name="GridSite">
         <Directory Id="INSTALLFOLDER" Name="BannerManager" />
       </Directory>
     </StandardDirectory>
 
-    <!-- Install the published single-file EXE -->
-    <Component Id="BannerManagerExe" Guid="{D3E6B87C-81B7-4F4B-9A7D-6F6B8F9C3A12}" Directory="INSTALLFOLDER">
-      <File Id="BannerManagerExeFile" Source="..\..\BannerManager\bin\Release\net8.0-windows\win-x64\publish\BannerManager.exe" KeyPath="yes" />
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="GridSiteProgramsFolder" Name="GridSite Technology">
+        <Directory Id="BannerManagerProgramsFolder" Name="BannerManager" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Per-user start menu shortcut (in 'GridSite Technology') -->
+    <Component Id="BannerManagerStartMenuShortcut" Guid="{7A5F12F7-3C83-4B7E-9C37-7C9D6B47E5E6}" Directory="BannerManagerProgramsFolder">
+      <Shortcut Id="BannerManagerShortcut"
+                Name="BannerManager"
+                Description="BannerManager alert editor"
+                Target="[INSTALLFOLDER]BannerManager.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveBannerManagerProgramsFolder" On="uninstall" Directory="BannerManagerProgramsFolder" />
+      <RemoveFolder Id="RemoveGridSiteProgramsFolder" On="uninstall" Directory="GridSiteProgramsFolder" />
+      <RegistryValue Root="HKCU" Key="Software\GridSite\BannerManager" Name="startmenu" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
   </Package>

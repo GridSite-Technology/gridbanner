@@ -17,7 +17,11 @@ namespace BannerManager
         public string AlertContactPhone { get; set; } = string.Empty;
         public string AlertContactEmail { get; set; } = string.Empty;
         public string AlertContactTeams { get; set; } = string.Empty;
+
+        // Optional site filter: if set, only workstations with matching site_name will show this alert
+        public string Site { get; set; } = string.Empty;
     }
 }
+
 
 

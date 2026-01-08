@@ -9,8 +9,8 @@ This project currently ships **Windows x64** builds only.
 ### Silent install (Intune-friendly)
 
 ```powershell
-msiexec /i GridBanner.msi /qn /norestart
-msiexec /i BannerManager.msi /qn /norestart
+msiexec /i GridBanner.msi /qn /norestart ACCEPTEULA=1
+msiexec /i BannerManager.msi /qn /norestart ACCEPTEULA=1
 ```
 
 ### Notes

@@ -7,7 +7,8 @@
   "alert_contact_name": "GridSite NOC",
   "alert_contact_phone": "+1 (555) 010-0001",
   "alert_contact_email": "noc@example.com",
-  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=noc@example.com"
+  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=noc@example.com",
+  "site": "HQ"
 }
 
 

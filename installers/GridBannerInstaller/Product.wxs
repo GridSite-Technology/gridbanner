@@ -1,30 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="GridBanner"
     Manufacturer="GridSite Technology"
     Version="1.0.0"
     UpgradeCode="{4B64A9D3-7C4C-4E6C-9F3F-79E8D1E2F7E1}"
     Language="1033"
-    Scope="perMachine">
+    Scope="perMachine"
+    Compressed="yes">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of GridBanner is already installed." />
-    <MediaTemplate />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- UI + EULA -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="..\assets\license.rtf" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+
+    <!-- Silent installs must pass ACCEPTEULA=1 -->
+    <Property Id="ACCEPTEULA" Secure="yes" />
+    <Launch Condition="UILevel &gt;= 3 OR ACCEPTEULA = 1"
+            Message="You must accept the license agreement. For silent installs, pass ACCEPTEULA=1." />
 
     <Feature Id="MainFeature" Title="GridBanner" Level="1">
-      <ComponentRef Id="GridBannerExe" />
+      <ComponentGroupRef Id="GridBannerPublishedFiles" />
     </Feature>
 
-    <StandardDirectory Id="ProgramFilesFolder">
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLROOT" Name="GridSite">
         <Directory Id="INSTALLFOLDER" Name="GridBanner" />
       </Directory>
     </StandardDirectory>
-
-    <!-- Install the published single-file EXE -->
-    <Component Id="GridBannerExe" Guid="{3D42B83A-3E2B-4C57-9B61-0A0F7D52A2B5}" Directory="INSTALLFOLDER">
-      <File Id="GridBannerExeFile" Source="..\..\bin\Release\net8.0-windows\win-x64\publish\GridBanner.exe" KeyPath="yes" />
-    </Component>
 
   </Package>
 </Wix>

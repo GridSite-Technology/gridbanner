@@ -61,6 +61,7 @@ namespace BannerManager
             ContactPhoneBox.Text = p.AlertContactPhone;
             ContactEmailBox.Text = p.AlertContactEmail;
             ContactTeamsBox.Text = p.AlertContactTeams;
+            SiteBox.Text = p.Site;
 
             SetCombo(LevelBox, p.Level);
             UpdatePreviews();
@@ -78,6 +79,7 @@ namespace BannerManager
             p.AlertContactPhone = ContactPhoneBox.Text.Trim();
             p.AlertContactEmail = ContactEmailBox.Text.Trim();
             p.AlertContactTeams = ContactTeamsBox.Text.Trim();
+            p.Site = SiteBox.Text.Trim();
         }
 
         private static string GetCombo(WpfControls.ComboBox box)

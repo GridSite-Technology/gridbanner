@@ -29,7 +29,11 @@ namespace GridBanner
             { "compliance_check_enabled", "1" },
             // Conservative default: NOT compliant unless proven compliant by an actual check
             { "compliance_status", "0" },
-            { "compliance_check_command", "" }
+            { "compliance_check_command", "" },
+
+            // Multi-site support: comma-separated list of site names (e.g., "HQ,Remote,Lab")
+            // If not set, workstation receives all alerts (backward compatible)
+            // { "site_name", "" }  // No default - leave empty/unset
         };
 
         /// <summary>

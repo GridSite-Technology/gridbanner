@@ -33,6 +33,10 @@ namespace GridBanner
         // Can be a Teams deep link (msteams:) or an https link (meeting/chat)
         [JsonPropertyName("alert_contact_teams")]
         public string? AlertContactTeams { get; set; }
+
+        // Optional site filter: if set, only workstations with matching site_name will show this alert
+        [JsonPropertyName("site")]
+        public string? Site { get; set; }
     }
 }
 

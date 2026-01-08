@@ -3,7 +3,31 @@
     <OutputName>BannerManager</OutputName>
     <OutputType>Package</OutputType>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Build an x64 MSI -->
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.0" />
+    <PackageReference Include="WixToolset.Heat" Version="5.0.0" />
+  </ItemGroup>
+
+  <!-- Harvest the published output folder (self-contained folder publish) -->
+  <ItemGroup>
+    <HarvestDirectory Include="..\..\BannerManager\bin\Release\net8.0-windows\win-x64\publish">
+      <ComponentGroupName>BannerManagerPublishedFiles</ComponentGroupName>
+      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <HarvestType>Directory</HarvestType>
+      <SuppressCom>true</SuppressCom>
+      <SuppressRegistry>true</SuppressRegistry>
+    </HarvestDirectory>
+  </ItemGroup>
+
+  <!-- Bind 'SourceDir' (used by Heat output) to the publish directory so Wix can locate harvested files -->
+  <ItemGroup>
+    <BindPath Include="..\..\BannerManager\bin\Release\net8.0-windows\win-x64\publish" />
+  </ItemGroup>
 
 </Project>
 

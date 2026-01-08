@@ -261,10 +261,11 @@ namespace GridBanner
             EnsureAlertManager();
             CreateOrRefreshAlertWindows(alertBarHeight);
 
-            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds));
+            var siteNames = config.GetValueOrDefault("site_name", string.Empty).Trim();
+            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames);
             _alertManager.Start();
 
-            LogMessage($"Alert system enabled. file='{alertFile}', url='{alertUrl}', pollSeconds={pollSeconds}");
+            LogMessage($"Alert system enabled. file='{alertFile}', url='{alertUrl}', pollSeconds={pollSeconds}, sites='{siteNames}'");
         }
 
         private void EnsureAlertManager()

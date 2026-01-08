@@ -20,7 +20,8 @@ namespace GridBanner
         string? ContactName,
         string? ContactPhone,
         string? ContactEmail,
-        string? ContactTeams
+        string? ContactTeams,
+        string? Site
     );
 }
 

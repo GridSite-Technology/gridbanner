@@ -62,6 +62,10 @@ namespace BannerManager
             if (!string.IsNullOrWhiteSpace(preset.AlertContactTeams))
                 payload["alert_contact_teams"] = preset.AlertContactTeams;
 
+            // Optional site filter
+            if (!string.IsNullOrWhiteSpace(preset.Site))
+                payload["site"] = preset.Site;
+
             var json = JsonSerializer.Serialize(payload, JsonOptions);
             File.WriteAllText(alertFilePath, json);
         }
@@ -106,6 +110,7 @@ namespace BannerManager
                 AlertContactPhone = GetString("alert_contact_phone"),
                 AlertContactEmail = GetString("alert_contact_email"),
                 AlertContactTeams = GetString("alert_contact_teams"),
+                Site = GetString("site"),
             };
 
             // Minimal validation / defaults
@@ -117,5 +122,6 @@ namespace BannerManager
         }
     }
 }
+
 
 

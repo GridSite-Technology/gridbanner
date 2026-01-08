@@ -52,6 +52,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Preset Name" VerticalAlignment="Center" Margin="0,0,10,6"/>
@@ -94,8 +95,13 @@
                     <TextBlock Grid.Row="8" Grid.Column="0" Text="Contact Email" VerticalAlignment="Center" Margin="0,0,10,6"/>
                     <TextBox Grid.Row="8" Grid.Column="1" x:Name="ContactEmailBox" Margin="0,0,10,6"/>
 
-                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Contact Teams" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <TextBox Grid.Row="9" Grid.Column="1" x:Name="ContactTeamsBox" Margin="0,0,10,0"/>
+                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Contact Teams" VerticalAlignment="Center" Margin="0,0,10,6"/>
+                    <TextBox Grid.Row="9" Grid.Column="1" x:Name="ContactTeamsBox" Margin="0,0,10,6"/>
+
+                    <TextBlock Grid.Row="10" Grid.Column="0" Text="Site (optional)" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBox Grid.Row="10" Grid.Column="1" x:Name="SiteBox" Margin="0,0,10,0"/>
+                    <TextBlock Grid.Row="10" Grid.Column="2" Text="If set, only workstations with matching site_name will see this alert" 
+                               VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#666" FontSize="11"/>
                 </Grid>
 
                 <Separator Margin="0,16,0,12"/>

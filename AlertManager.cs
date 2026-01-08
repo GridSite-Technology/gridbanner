@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -22,6 +24,7 @@ namespace GridBanner
         private string? _filePath;
         private string? _url;
         private TimeSpan _pollInterval = TimeSpan.FromSeconds(5);
+        private HashSet<string>? _workstationSites;  // null = no filtering (backward compatible)
 
         private FileSystemWatcher? _watcher;
         private Timer? _debounceTimer;
@@ -35,11 +38,27 @@ namespace GridBanner
 
         private AlertMessage? _current;
 
-        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval)
+        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null)
         {
             _filePath = string.IsNullOrWhiteSpace(alertFileLocation) ? null : alertFileLocation.Trim();
             _url = string.IsNullOrWhiteSpace(alertUrl) ? null : alertUrl.Trim();
             _pollInterval = pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : pollInterval;
+
+            // Parse comma-separated site names (case-insensitive)
+            if (string.IsNullOrWhiteSpace(workstationSiteNames))
+            {
+                _workstationSites = null;  // No filtering - show all alerts
+            }
+            else
+            {
+                _workstationSites = new HashSet<string>(
+                    workstationSiteNames.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(s => s.Trim())
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Select(s => s.ToLowerInvariant()),
+                    StringComparer.OrdinalIgnoreCase
+                );
+            }
         }
 
         public void Start()
@@ -243,6 +262,21 @@ namespace GridBanner
                 return null;
             }
 
+            var site = payload.Site?.Trim();
+            var siteLower = string.IsNullOrWhiteSpace(site) ? null : site.ToLowerInvariant();
+
+            // Site filtering: if alert has a site, check if workstation is in that site
+            if (siteLower != null && _workstationSites != null)
+            {
+                if (!_workstationSites.Contains(siteLower))
+                {
+                    // Workstation is not in the alert's site - don't show this alert
+                    return null;
+                }
+            }
+            // If alert has no site, show to everyone (backward compatible)
+            // If workstation has no sites configured, show all alerts (backward compatible)
+
             var signature = ComputeSignature(trimmed);
             return new AlertMessage(
                 signature,
@@ -254,7 +288,8 @@ namespace GridBanner
                 string.IsNullOrWhiteSpace(contactName) ? null : contactName,
                 string.IsNullOrWhiteSpace(contactPhone) ? null : contactPhone,
                 string.IsNullOrWhiteSpace(contactEmail) ? null : contactEmail,
-                string.IsNullOrWhiteSpace(contactTeams) ? null : contactTeams
+                string.IsNullOrWhiteSpace(contactTeams) ? null : contactTeams,
+                string.IsNullOrWhiteSpace(site) ? null : site
             );
         }
 

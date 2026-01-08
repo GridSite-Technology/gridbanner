@@ -7,7 +7,8 @@
   "alert_contact_name": "GridSite Security",
   "alert_contact_phone": "+1 (555) 010-0002",
   "alert_contact_email": "security@example.com",
-  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=security@example.com"
+  "alert_contact_teams": "https://teams.microsoft.com/l/chat/0/0?users=security@example.com",
+  "site": "Remote"
 }
 
 
