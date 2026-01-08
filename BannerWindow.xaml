@@ -41,13 +41,29 @@
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"/>
 
-        <TextBlock Grid.Column="2"
-                   Text="{Binding OrgName}"
-                   Foreground="{Binding ForegroundColor}"
-                   FontSize="17"
-                   FontWeight="Bold"
-                   VerticalAlignment="Center"
-                   Margin="0,0,12,0"/>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+            <TextBlock Text="{Binding DisplayOrgText}"
+                       Foreground="{Binding ForegroundColor}"
+                       FontSize="17"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+            <Border Background="{Binding ForegroundColor}"
+                    CornerRadius="8"
+                    Padding="6,2"
+                    Margin="6,0,0,0"
+                    VerticalAlignment="Center"
+                    Visibility="{Binding SiteBadgeVisibility}">
+                <TextBlock Text="{Binding SiteBadgeText}"
+                           Foreground="{Binding BackgroundColor}"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center">
+                    <TextBlock.ToolTip>
+                        <ToolTip Content="{Binding SiteTooltipText}"/>
+                    </TextBlock.ToolTip>
+                </TextBlock>
+            </Border>
+        </StackPanel>
 
         <Border Grid.Column="3"
                 Background="{Binding ComplianceBackground}"

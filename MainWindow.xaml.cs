@@ -152,10 +152,13 @@ namespace GridBanner
                     LogMessage($"Compliance: enabled={complianceEnabled}, no command; using compliance_status={complianceStatusFallback}");
                 }
 
+                var siteNames = config.GetValueOrDefault("site_name", string.Empty).Trim();
+
                 CreateOrRefreshBanners(
                     computerName,
                     username,
                     orgName,
+                    siteNames,
                     classificationLevel,
                     backgroundColor,
                     foregroundColor,
@@ -183,6 +186,7 @@ namespace GridBanner
             string computerName,
             string username,
             string orgName,
+            string siteNames,
             string classificationLevel,
             System.Windows.Media.Color backgroundColor,
             System.Windows.Media.Color foregroundColor,
@@ -213,6 +217,7 @@ namespace GridBanner
                         ComputerName = computerName,
                         Username = username,
                         OrgName = orgName,
+                        SiteNames = siteNames,
                         ClassificationLevel = classificationLevel,
                         BackgroundColor = new SolidColorBrush(backgroundColor),
                         ForegroundColor = new SolidColorBrush(foregroundColor),

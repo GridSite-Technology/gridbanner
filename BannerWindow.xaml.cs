@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Interop;
@@ -13,10 +14,108 @@ namespace GridBanner
         public string ComputerName { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
         public string OrgName { get; set; } = string.Empty;
+        public string SiteNames { get; set; } = string.Empty;  // Comma-separated
         public string ClassificationLevel { get; set; } = string.Empty;
         public Brush BackgroundColor { get; set; } = Brushes.Navy;
         public Brush ForegroundColor { get; set; } = Brushes.White;
         public double BannerHeight { get; set; } = 60;
+
+        // Computed properties for site display
+        public string DisplayOrgText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(SiteNames))
+                {
+                    return OrgName;  // No sites, just show org name
+                }
+
+                var sites = SiteNames.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+
+                if (sites.Count == 0)
+                {
+                    return OrgName;
+                }
+
+                // First site: "Company - Location"
+                var firstSite = sites[0];
+                if (sites.Count == 1)
+                {
+                    return $"{OrgName} - {firstSite}";
+                }
+
+                // Multiple sites: "Company - FirstLocation" + badge
+                return $"{OrgName} - {firstSite}";
+            }
+        }
+
+        public Visibility SiteBadgeVisibility
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(SiteNames))
+                {
+                    return Visibility.Collapsed;
+                }
+
+                var sites = SiteNames.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+
+                return sites.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        public string SiteBadgeText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(SiteNames))
+                {
+                    return string.Empty;
+                }
+
+                var sites = SiteNames.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+
+                if (sites.Count <= 1)
+                {
+                    return string.Empty;
+                }
+
+                return $"+{sites.Count - 1}";
+            }
+        }
+
+        public string SiteTooltipText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(SiteNames))
+                {
+                    return string.Empty;
+                }
+
+                var sites = SiteNames.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+
+                if (sites.Count <= 1)
+                {
+                    return string.Empty;
+                }
+
+                // Skip first site (already shown), list the rest
+                return string.Join(", ", sites.Skip(1));
+            }
+        }
 
         public bool ComplianceEnabled { get; set; } = true;
         public int ComplianceStatus { get; set; } = 1; // 1=compliant, 0=non-compliant
