@@ -240,6 +240,7 @@ namespace GridBanner
 
                     if (!resp.IsSuccessStatusCode)
                     {
+                        // Connection failed - don't update last successful connection
                         return null;
                     }
 
@@ -251,24 +252,34 @@ namespace GridBanner
                 }
                 catch
                 {
+                    // Connection failed - don't update last successful connection
                     // Fall back to GET if POST fails (backward compatibility)
                 }
             }
 
             // Fallback to GET for backward compatibility or if no system info
-            using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
-            using var getResp = await _httpClient.SendAsync(getReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-
-            if (!getResp.IsSuccessStatusCode)
+            try
             {
+                using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
+                using var getResp = await _httpClient.SendAsync(getReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+
+                if (!getResp.IsSuccessStatusCode)
+                {
+                    // Connection failed - don't update last successful connection
+                    return null;
+                }
+
+                // Update last successful connection time
+                _lastSuccessfulConnection = DateTime.UtcNow;
+
+                var getJson = await getResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                return ParseAlertJson(getJson);
+            }
+            catch
+            {
+                // Connection failed - don't update last successful connection
                 return null;
             }
-
-            // Update last successful connection time
-            _lastSuccessfulConnection = DateTime.UtcNow;
-
-            var getJson = await getResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            return ParseAlertJson(getJson);
         }
 
         private AlertMessage? ParseAlertJson(string? json)

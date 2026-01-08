@@ -144,13 +144,15 @@ namespace GridBanner
             get => _lastServerConnection;
             set
             {
-                if (_lastServerConnection != value)
+                var changed = _lastServerConnection != value;
+                _lastServerConnection = value;
+                if (changed)
                 {
-                    _lastServerConnection = value;
                     OnPropertyChanged(nameof(LastServerConnection));
-                    OnPropertyChanged(nameof(ConnectivityWarningVisibility));
-                    OnPropertyChanged(nameof(ConnectivityWarningTooltip));
                 }
+                // Always notify visibility/tooltip changes since they depend on current time
+                OnPropertyChanged(nameof(ConnectivityWarningVisibility));
+                OnPropertyChanged(nameof(ConnectivityWarningTooltip));
             }
         }
         

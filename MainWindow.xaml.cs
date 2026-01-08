@@ -370,6 +370,8 @@ namespace GridBanner
             {
                 try
                 {
+                    // Always update to trigger property change notifications
+                    // This ensures visibility is re-evaluated based on current time
                     banner.LastServerConnection = lastConnection;
                 }
                 catch
