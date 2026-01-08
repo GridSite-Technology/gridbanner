@@ -7,7 +7,7 @@
         ShowInTaskbar="False"
         ShowActivated="False">
     <!-- Single-row banner: username (left) | classification (center) | org (right) | compliance badge (far right) -->
-    <Grid Margin="16,0" VerticalAlignment="Center">
+    <Grid Margin="16,0" VerticalAlignment="Center" MouseDown="Grid_MouseDown">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>

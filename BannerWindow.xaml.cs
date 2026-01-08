@@ -242,6 +242,61 @@ namespace GridBanner
         {
             InitializeComponent();
             DataContext = this;
+            
+            // Add mouse down handler for triple-click detection
+            MouseDown += BannerWindow_MouseDown;
+        }
+        
+        private void BannerWindow_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            HandleTripleClick();
+        }
+        
+        private void Grid_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            HandleTripleClick();
+        }
+        
+        private void HandleTripleClick()
+        {
+            var now = DateTime.Now;
+            var timeSinceLastClick = (now - _lastClickTime).TotalMilliseconds;
+            
+            // Reset if more than 500ms since last click
+            if (timeSinceLastClick > 500)
+            {
+                _clickCount = 1;
+            }
+            else
+            {
+                _clickCount++;
+            }
+            
+            _lastClickTime = now;
+            
+            // Triple-click detected
+            if (_clickCount >= 3)
+            {
+                _clickCount = 0; // Reset counter
+                ShowMenu();
+            }
+        }
+        
+        private void ShowMenu()
+        {
+            var menuWindow = new BannerMenuWindow
+            {
+                PermitTerminate = _permitTerminate,
+                Owner = this
+            };
+            
+            // Position menu near mouse cursor
+            var mousePos = System.Windows.Input.Mouse.GetPosition(this);
+            var screenPos = PointToScreen(mousePos);
+            menuWindow.Left = screenPos.X;
+            menuWindow.Top = screenPos.Y;
+            
+            menuWindow.Show();
         }
 
         public void SetScreen(Screen screen)
