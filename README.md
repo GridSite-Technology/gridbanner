@@ -206,15 +206,15 @@ Alerts are defined in JSON format:
 Configure alerts in `conf.ini`:
 
 ```ini
-; Local file path (optional)
-alert_file_location = C:\gridsite\alert.json
-
-; OR remote server URL (optional)
+; Remote server URL (optional, takes precedence if set)
 alert_url = http://your-server:3000/api/alert
 alert_poll_seconds = 5
+
+; OR local file path (optional, used only if alert_url is not set)
+alert_file_location = C:\gridsite\alert.json
 ```
 
-**Note:** If both `alert_file_location` and `alert_url` are configured, the file takes precedence.
+**Note:** If both `alert_file_location` and `alert_url` are configured, the URL takes precedence. The local file is only used if `alert_url` is not set (useful for testing).
 
 ### Connectivity Warning
 
