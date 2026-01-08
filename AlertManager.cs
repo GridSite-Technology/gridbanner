@@ -33,10 +33,7 @@ namespace GridBanner
         private FileSystemWatcher? _watcher;
         private Timer? _debounceTimer;
         private Timer? _urlTimer;
-        private readonly HttpClient _httpClient = new()
-        {
-            Timeout = TimeSpan.FromSeconds(2)
-        };
+        private readonly HttpClient _httpClient = new();
 
         private CancellationTokenSource? _cts;
 
@@ -62,6 +59,11 @@ namespace GridBanner
             _url = string.IsNullOrWhiteSpace(alertUrl) ? null : alertUrl.Trim();
             _pollInterval = pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : pollInterval;
             _systemInfo = systemInfo;
+            
+            // Set HTTP timeout to 80% of poll interval, but cap at 0.5 seconds minimum and 2 seconds maximum
+            // This ensures we detect failures quickly without being too aggressive
+            var timeoutSeconds = Math.Max(0.5, Math.Min(_pollInterval.TotalSeconds * 0.8, 2.0));
+            _httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
             
             // Extract base URL for audio file downloads
             if (!string.IsNullOrWhiteSpace(alertUrl) && Uri.TryCreate(alertUrl, UriKind.Absolute, out var uri))
