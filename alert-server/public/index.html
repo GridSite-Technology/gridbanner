@@ -139,6 +139,16 @@
         <h1>GridBanner Alert Server</h1>
         <p class="subtitle">Centralized alert management for GridBanner workstations</p>
 
+        <div style="margin-bottom: 20px; padding: 15px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>Admin Key Management</strong>
+                    <div style="font-size: 12px; color: #666; margin-top: 4px;">Change the server admin key</div>
+                </div>
+                <button type="button" class="btn-secondary" id="changeKeyBtn" style="margin: 0;">Change Admin Key</button>
+            </div>
+        </div>
+
         <div class="current-alert" id="currentAlert">
             <h3>Current Alert</h3>
             <pre id="currentAlertContent">Loading...</pre>
@@ -210,6 +220,24 @@
         </form>
 
         <div class="status" id="status"></div>
+    </div>
+
+    <!-- Change Admin Key Modal -->
+    <div id="keyModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 30px; border-radius: 8px; max-width: 400px; width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+            <h2 style="margin-bottom: 20px;">Change Admin Key</h2>
+            <div class="form-group">
+                <label for="newKey">New Admin Key *</label>
+                <input type="password" id="newKey" required placeholder="Enter new admin key (min 4 characters)" style="margin-bottom: 10px;">
+                <input type="password" id="confirmKey" required placeholder="Confirm new admin key" style="margin-bottom: 10px;">
+                <div style="font-size: 12px; color: #666;">The admin key must be at least 4 characters long.</div>
+            </div>
+            <div class="button-group" style="margin-top: 20px;">
+                <button type="button" class="btn-primary" id="saveKeyBtn">Save</button>
+                <button type="button" class="btn-secondary" id="cancelKeyBtn">Cancel</button>
+            </div>
+            <div class="status" id="keyStatus" style="margin-top: 15px;"></div>
+        </div>
     </div>
 
     <script>
@@ -344,6 +372,81 @@
             populateForm(alert);
         });
 
+        // Admin Key Management
+        const keyModal = document.getElementById('keyModal');
+        const changeKeyBtn = document.getElementById('changeKeyBtn');
+        const cancelKeyBtn = document.getElementById('cancelKeyBtn');
+        const saveKeyBtn = document.getElementById('saveKeyBtn');
+        const newKeyInput = document.getElementById('newKey');
+        const confirmKeyInput = document.getElementById('confirmKey');
+        const keyStatus = document.getElementById('keyStatus');
+
+        function showKeyStatus(message, isError = false) {
+            keyStatus.textContent = message;
+            keyStatus.className = 'status ' + (isError ? 'error' : 'success');
+            keyStatus.style.display = 'block';
+            setTimeout(() => { keyStatus.style.display = 'none'; }, 5000);
+        }
+
+        changeKeyBtn.addEventListener('click', () => {
+            keyModal.style.display = 'flex';
+            newKeyInput.value = '';
+            confirmKeyInput.value = '';
+            keyStatus.style.display = 'none';
+        });
+
+        cancelKeyBtn.addEventListener('click', () => {
+            keyModal.style.display = 'none';
+            newKeyInput.value = '';
+            confirmKeyInput.value = '';
+            keyStatus.style.display = 'none';
+        });
+
+        saveKeyBtn.addEventListener('click', async () => {
+            const newKey = newKeyInput.value.trim();
+            const confirmKey = confirmKeyInput.value.trim();
+
+            if (!newKey || newKey.length < 4) {
+                showKeyStatus('Admin key must be at least 4 characters', true);
+                return;
+            }
+
+            if (newKey !== confirmKey) {
+                showKeyStatus('Keys do not match', true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/key`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ new_key: newKey })
+                });
+
+                if (res.ok) {
+                    showKeyStatus('Admin key updated successfully! Please refresh the page and use the new key.', false);
+                    setTimeout(() => {
+                        // Update the stored key and reload
+                        const url = new URL(window.location);
+                        url.searchParams.set('key', newKey);
+                        window.location.href = url.toString();
+                    }, 2000);
+                } else {
+                    const err = await res.json();
+                    showKeyStatus('Error: ' + (err.error || 'Failed to update admin key'), true);
+                }
+            } catch (err) {
+                showKeyStatus('Error: ' + err.message, true);
+            }
+        });
+
+        // Close modal on outside click
+        keyModal.addEventListener('click', (e) => {
+            if (e.target === keyModal) {
+                cancelKeyBtn.click();
+            }
+        });
+
         // Initial load
         (async () => {
             const alert = await loadCurrentAlert();
@@ -352,4 +455,5 @@
     </script>
 </body>
 </html>
+
 
