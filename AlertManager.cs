@@ -27,6 +27,8 @@ namespace GridBanner
         private HashSet<string>? _workstationSites;  // null = no filtering (backward compatible)
         private SystemInfo? _systemInfo;  // System info to send when polling
         private string? _baseUrl;  // Base URL for downloading audio files
+        
+        public string? BaseUrl => _baseUrl;
 
         private FileSystemWatcher? _watcher;
         private Timer? _debounceTimer;
