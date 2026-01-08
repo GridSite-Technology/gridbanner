@@ -2011,6 +2011,132 @@
             });
         }
 
+        // Upload audio button (Settings tab)
+        const uploadAudioBtnSettings = document.getElementById('uploadAudioBtnSettings');
+        const audioFileInputSettings = document.getElementById('audioFileInputSettings');
+        if (uploadAudioBtnSettings && audioFileInputSettings) {
+            uploadAudioBtnSettings.addEventListener('click', () => audioFileInputSettings.click());
+            audioFileInputSettings.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const formData = new FormData();
+                formData.append('audio', file);
+                formData.append('name', file.name.replace(/\.[^/.]+$/, ''));
+                
+                try {
+                    const res = await fetch(`${API_BASE}/audio`, {
+                        method: 'POST',
+                        headers: { 'X-Admin-Key': ADMIN_KEY },
+                        body: formData
+                    });
+                    
+                    if (res.ok) {
+                        loadAudioFilesSettings();
+                        loadAudioFiles(); // Also update Audio tab if open
+                        showStatus('Audio file uploaded successfully');
+                        audioFileInputSettings.value = '';
+                    } else {
+                        const err = await res.json();
+                        showStatus('Error: ' + (err.error || 'Failed to upload'), true);
+                    }
+                } catch (err) {
+                    showStatus('Error: ' + err.message, true);
+                }
+            });
+        }
+
+        // Audio management for Settings tab
+        async function loadAudioFilesSettings() {
+            try {
+                const res = await fetch(`${API_BASE}/audio`, { headers });
+                if (res.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                const data = await res.json();
+                renderAudioFilesSettings(data.audio_files || []);
+            } catch (err) {
+                const container = document.getElementById('audioListSettings');
+                if (container) {
+                    container.innerHTML = '<div class="status error">Error loading audio files: ' + err.message + '</div>';
+                }
+            }
+        }
+
+        function renderAudioFilesSettings(audioFiles) {
+            const container = document.getElementById('audioListSettings');
+            if (!container) return;
+            
+            if (audioFiles.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;"><p style="margin-bottom: 10px;">No audio files uploaded yet.</p><p style="font-size: 14px;">Click "Upload Audio File" to add your first audio file.</p></div>';
+                return;
+            }
+            container.innerHTML = audioFiles.map(a => {
+                const sizeKB = (a.size / 1024).toFixed(1);
+                const uploaded = new Date(a.uploaded).toLocaleString();
+                return `
+                    <div class="list-item" style="background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
+                                    🎵
+                                </div>
+                                <div>
+                                    <strong style="font-size: 16px; color: #333;" id="audio-settings-name-${a.id}">${a.name}</strong>
+                                    <div style="font-size: 12px; color: #666; margin-top: 2px;">${a.filename} • ${sizeKB} KB • Uploaded: ${uploaded}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="list-item-actions">
+                            <button class="btn-secondary btn-small" onclick="editAudioNameSettings('${a.id}')" style="min-width: 70px;">Rename</button>
+                            <button class="btn-danger btn-small" onclick="deleteAudioSettings('${a.id}')" style="min-width: 70px;">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.editAudioNameSettings = function(audioId) {
+            const currentName = document.getElementById(`audio-settings-name-${audioId}`)?.textContent || '';
+            const name = prompt('Enter new audio file name:', currentName);
+            if (!name || name.trim().length === 0) return;
+            
+            fetch(`${API_BASE}/audio/${audioId}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ name: name.trim() })
+            }).then(res => {
+                if (res.ok) {
+                    loadAudioFilesSettings();
+                    loadAudioFiles(); // Also update Audio tab if open
+                    showStatus('Audio file renamed successfully');
+                } else {
+                    res.json().then(err => showStatus('Error: ' + (err.error || 'Failed to rename'), true));
+                }
+            }).catch(err => showStatus('Error: ' + err.message, true));
+        };
+
+        window.deleteAudioSettings = async function(audioId) {
+            if (!confirm('Delete this audio file?')) return;
+            try {
+                const res = await fetch(`${API_BASE}/audio/${audioId}`, {
+                    method: 'DELETE',
+                    headers
+                });
+                if (res.ok) {
+                    loadAudioFilesSettings();
+                    loadAudioFiles(); // Also update Audio tab if open
+                    showStatus('Audio file deleted');
+                } else {
+                    const err = await res.json();
+                    showStatus('Error: ' + (err.error || 'Failed to delete'), true);
+                }
+            } catch (err) {
+                showStatus('Error: ' + err.message, true);
+            }
+        };
+
         // Admin Key Management
         const keyModal = document.getElementById('keyModal');
         const changeKeyBtn = document.getElementById('changeKeyBtn');
