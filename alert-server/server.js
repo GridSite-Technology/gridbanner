@@ -509,6 +509,122 @@ app.post('/api/settings', requireAdminKey, async (req, res) => {
   }
 });
 
+// Audio file management endpoints
+const multer = require('multer');
+const upload = multer({ 
+  dest: AUDIO_DIR,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['audio/mpeg', 'audio/wav', 'audio/mp3', 'audio/wave', 'audio/x-wav', 'audio/mp4', 'audio/m4a'];
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(mp3|wav|m4a|mp4)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files (mp3, wav, m4a, mp4) are allowed'));
+    }
+  }
+});
+
+// GET /api/audio - List all audio files
+app.get('/api/audio', requireAdminKey, async (req, res) => {
+  try {
+    const files = await fs.readdir(AUDIO_DIR);
+    const audioFiles = [];
+    for (const file of files) {
+      const filePath = path.join(AUDIO_DIR, file);
+      const stats = await fs.stat(filePath);
+      if (stats.isFile() && file.match(/\.(mp3|wav|m4a|mp4)$/i)) {
+        audioFiles.push({
+          id: file,
+          name: file.replace(/\.(mp3|wav|m4a|mp4)$/i, ''),
+          filename: file,
+          size: stats.size,
+          uploaded: stats.mtime.toISOString()
+        });
+      }
+    }
+    res.json({ audio_files: audioFiles });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/audio - Upload audio file
+app.post('/api/audio', requireAdminKey, upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    const originalName = req.body.name || req.file.originalname || 'audio';
+    const ext = path.extname(req.file.filename) || path.extname(req.file.originalname) || '.mp3';
+    const newName = originalName.replace(/[^a-zA-Z0-9_-]/g, '_') + ext;
+    const newPath = path.join(AUDIO_DIR, newName);
+    
+    // Rename uploaded file
+    await fs.rename(req.file.path, newPath);
+    
+    const stats = await fs.stat(newPath);
+    res.json({
+      id: newName,
+      name: originalName,
+      filename: newName,
+      size: stats.size,
+      uploaded: stats.mtime.toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/audio/:id - Rename audio file
+app.put('/api/audio/:id', requireAdminKey, async (req, res) => {
+  try {
+    const oldId = req.params.id;
+    const newName = req.body.name;
+    if (!newName || newName.trim().length === 0) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    
+    const oldPath = path.join(AUDIO_DIR, oldId);
+    const ext = path.extname(oldId);
+    const safeName = newName.replace(/[^a-zA-Z0-9_-]/g, '_') + ext;
+    const newPath = path.join(AUDIO_DIR, safeName);
+    
+    await fs.rename(oldPath, newPath);
+    res.json({ id: safeName, name: newName, filename: safeName });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.status(404).json({ error: 'Audio file not found' });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// DELETE /api/audio/:id - Delete audio file
+app.delete('/api/audio/:id', requireAdminKey, async (req, res) => {
+  try {
+    const filePath = path.join(AUDIO_DIR, req.params.id);
+    await fs.unlink(filePath);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.status(404).json({ error: 'Audio file not found' });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// GET /api/audio/:id/download - Download audio file (no auth required for clients)
+app.get('/api/audio/:id/download', (req, res) => {
+  const filePath = path.join(AUDIO_DIR, req.params.id);
+  res.download(filePath, (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).json({ error: 'Audio file not found' });
+    }
+  });
+});
+
 // Static files (must be after API routes)
 app.use(express.static('public'));
 
