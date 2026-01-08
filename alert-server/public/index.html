@@ -384,11 +384,14 @@
 
         <!-- Sites Tab -->
         <div id="tab-sites" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2>Sites</h2>
-                <button type="button" class="btn-primary" id="newSiteBtn">New Site</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <div>
+                    <h2 style="margin-bottom: 4px;">Sites</h2>
+                    <p style="color: #666; font-size: 14px; margin: 0;">Manage site locations for targeted alert distribution</p>
+                </div>
+                <button type="button" class="btn-primary" id="newSiteBtn">+ New Site</button>
             </div>
-            <div id="sitesList"></div>
+            <div id="sitesList" style="min-height: 200px;"></div>
         </div>
 
         <!-- Systems Tab -->
@@ -1234,6 +1237,27 @@
             document.getElementById('contact_teams').value = template.alert_contact_teams || '';
             document.getElementById('bgPreview').style.background = template.background_color;
             document.getElementById('fgPreview').style.background = template.foreground_color;
+            
+            // Handle site selection - template may have a site, but user can override
+            if (template.site) {
+                // Template has a site - set to "Selected Sites" and check that site
+                document.querySelector('input[name="siteTarget"][value="selected"]').checked = true;
+                document.getElementById('siteCheckboxes').style.display = 'block';
+                
+                // Wait for checkboxes to be populated, then check the template's site
+                setTimeout(() => {
+                    const checkboxes = document.querySelectorAll('input[name="selectedSites"]');
+                    checkboxes.forEach(cb => {
+                        if (cb.value === template.site) {
+                            cb.checked = true;
+                        }
+                    });
+                }, 100);
+            } else {
+                // Template has no site - default to "All Sites"
+                document.querySelector('input[name="siteTarget"][value="all"]').checked = true;
+                document.getElementById('siteCheckboxes').style.display = 'none';
+            }
         }
 
         // Sites management
@@ -1255,18 +1279,40 @@
         function renderSites(sites) {
             const container = document.getElementById('sitesList');
             if (sites.length === 0) {
-                container.innerHTML = '<p>No sites yet. Click "New Site" to create one.</p>';
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;"><p style="margin-bottom: 10px;">No sites configured yet.</p><p style="font-size: 14px;">Click "New Site" to create your first site.</p></div>';
                 return;
             }
             container.innerHTML = sites.map(s => `
-                <div class="list-item">
-                    <div><strong>${s.name}</strong></div>
+                <div class="list-item" style="background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: box-shadow 0.2s;">
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px;">
+                                ${s.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <strong style="font-size: 16px; color: #333;">${s.name}</strong>
+                                <div style="font-size: 12px; color: #666; margin-top: 2px;">Site ID: ${s.id}</div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="list-item-actions">
-                        <button class="btn-secondary btn-small" onclick="editSite('${s.id}')">Edit</button>
-                        <button class="btn-danger btn-small" onclick="deleteSite('${s.id}')">Delete</button>
+                        <button class="btn-secondary btn-small" onclick="editSite('${s.id}')" style="min-width: 70px;">Edit</button>
+                        <button class="btn-danger btn-small" onclick="deleteSite('${s.id}')" style="min-width: 70px;">Delete</button>
                     </div>
                 </div>
             `).join('');
+            
+            // Add hover effect
+            container.querySelectorAll('.list-item').forEach(item => {
+                item.addEventListener('mouseenter', () => {
+                    item.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                    item.style.transform = 'translateY(-2px)';
+                });
+                item.addEventListener('mouseleave', () => {
+                    item.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                    item.style.transform = 'translateY(0)';
+                });
+            });
         }
 
         function updateSiteCheckboxes(sites) {
@@ -1280,8 +1326,11 @@
         }
 
         window.editSite = function(siteId) {
-            const name = prompt('Enter new site name:');
+            // Get current site name
+            const currentName = document.querySelector(`[onclick="editSite('${siteId}')"]`)?.closest('.list-item')?.querySelector('strong')?.textContent || '';
+            const name = prompt('Enter new site name:', currentName);
             if (!name || name.trim().length === 0) return;
+            
             fetch(`${API_BASE}/sites/${siteId}`, {
                 method: 'PUT',
                 headers,
@@ -1289,7 +1338,8 @@
             }).then(res => {
                 if (res.ok) {
                     loadSites();
-                    showStatus('Site updated');
+                    updateSiteCheckboxes([]); // Will be updated when loadSites completes
+                    showStatus('Site updated successfully');
                 } else {
                     showStatus('Error updating site', true);
                 }
