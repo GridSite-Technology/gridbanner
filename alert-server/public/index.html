@@ -474,6 +474,84 @@
         </div>
     </div>
 
+    <!-- Template Editor Modal -->
+    <div id="templateModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; overflow-y: auto; padding: 20px;">
+        <div style="background: white; padding: 30px; border-radius: 8px; max-width: 800px; width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); margin: 20px auto;">
+            <h2 style="margin-bottom: 20px;" id="templateModalTitle">Create Template</h2>
+            <form id="templateForm">
+                <div class="form-group">
+                    <label for="templateName">Template Name *</label>
+                    <input type="text" id="templateName" required placeholder="Enter template name">
+                </div>
+
+                <div class="form-group">
+                    <label for="templateLevel">Alert Level *</label>
+                    <select id="templateLevel" required>
+                        <option value="routine">Routine</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="critical">Critical</option>
+                        <option value="super_critical">Super Critical</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateSummary">Summary *</label>
+                    <input type="text" id="templateSummary" required placeholder="Brief alert summary">
+                </div>
+
+                <div class="form-group">
+                    <label for="templateMessage">Message *</label>
+                    <textarea id="templateMessage" required placeholder="Full alert message text" style="min-height: 120px;"></textarea>
+                </div>
+
+                <div class="color-group">
+                    <div class="form-group">
+                        <label for="templateBgColor">Background Color *</label>
+                        <input type="text" id="templateBgColor" required value="#B00020" placeholder="#FF0000">
+                        <div class="color-preview" id="templateBgPreview" style="background: #B00020;"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="templateFgColor">Foreground Color *</label>
+                        <input type="text" id="templateFgColor" required value="#FFFFFF" placeholder="#FFFFFF">
+                        <div class="color-preview" id="templateFgPreview" style="background: #FFFFFF;"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateSite">Site (optional)</label>
+                    <select id="templateSite">
+                        <option value="">All Sites</option>
+                    </select>
+                </div>
+
+                <div class="grid">
+                    <div class="form-group">
+                        <label for="templateContactName">Contact Name</label>
+                        <input type="text" id="templateContactName" placeholder="Optional">
+                    </div>
+                    <div class="form-group">
+                        <label for="templateContactPhone">Contact Phone</label>
+                        <input type="text" id="templateContactPhone" placeholder="Optional">
+                    </div>
+                    <div class="form-group">
+                        <label for="templateContactEmail">Contact Email</label>
+                        <input type="email" id="templateContactEmail" placeholder="Optional">
+                    </div>
+                    <div class="form-group">
+                        <label for="templateContactTeams">Contact Teams</label>
+                        <input type="text" id="templateContactTeams" placeholder="Optional">
+                    </div>
+                </div>
+
+                <div class="button-group" style="margin-top: 25px;">
+                    <button type="submit" class="btn-primary" id="saveTemplateModalBtn">Save Template</button>
+                    <button type="button" class="btn-secondary" id="cancelTemplateBtn">Cancel</button>
+                </div>
+            </form>
+            <div class="status" id="templateStatus" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
     <script>
         const API_BASE = '/api';
         let ADMIN_KEY = null;
@@ -719,21 +797,101 @@
             if (newTemplateBtn && !newTemplateBtn.dataset.listenerAttached) {
                 newTemplateBtn.dataset.listenerAttached = 'true';
                 newTemplateBtn.addEventListener('click', () => {
-                    // Show template creation form in a modal or inline
-                    const name = prompt('Enter template name:');
-                    if (!name || name.trim().length === 0) return;
-                    
-                    // Switch to alerts tab to use the form
-                    document.querySelector('[data-tab="alerts"]').click();
-                    // Clear form and set template name in a hidden field or use the form
-                    document.getElementById('alertForm').reset();
-                    document.getElementById('alertSource').value = 'manual';
-                    document.getElementById('templateSelect').style.display = 'none';
-                    loadDefaultContacts();
-                    // Store template name for saving
-                    document.getElementById('alertForm').dataset.templateName = name.trim();
-                    showStatus('Fill out the form below and click "Save as Template" to create the template');
+                    openTemplateModal();
                 });
+            }
+
+            // Template form handlers
+            const templateForm = document.getElementById('templateForm');
+            if (templateForm && !templateForm.dataset.listenerAttached) {
+                templateForm.dataset.listenerAttached = 'true';
+                
+                // Color previews
+                document.getElementById('templateBgColor').addEventListener('input', (e) => {
+                    document.getElementById('templateBgPreview').style.background = e.target.value;
+                });
+                document.getElementById('templateFgColor').addEventListener('input', (e) => {
+                    document.getElementById('templateFgPreview').style.background = e.target.value;
+                });
+                
+                // Form submit
+                templateForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const templateId = templateForm.dataset.templateId;
+                    const template = {
+                        name: document.getElementById('templateName').value.trim(),
+                        level: document.getElementById('templateLevel').value,
+                        summary: document.getElementById('templateSummary').value.trim(),
+                        message: document.getElementById('templateMessage').value.trim(),
+                        background_color: document.getElementById('templateBgColor').value.trim(),
+                        foreground_color: document.getElementById('templateFgColor').value.trim()
+                    };
+
+                    const site = document.getElementById('templateSite').value.trim();
+                    if (site) template.site = site;
+
+                    const contactName = document.getElementById('templateContactName').value.trim();
+                    const contactPhone = document.getElementById('templateContactPhone').value.trim();
+                    const contactEmail = document.getElementById('templateContactEmail').value.trim();
+                    const contactTeams = document.getElementById('templateContactTeams').value.trim();
+
+                    if (contactName) template.alert_contact_name = contactName;
+                    if (contactPhone) template.alert_contact_phone = contactPhone;
+                    if (contactEmail) template.alert_contact_email = contactEmail;
+                    if (contactTeams) template.alert_contact_teams = contactTeams;
+
+                    try {
+                        const url = templateId ? `${API_BASE}/templates/${templateId}` : `${API_BASE}/templates`;
+                        const method = templateId ? 'PUT' : 'POST';
+                        
+                        const res = await fetch(url, {
+                            method: method,
+                            headers,
+                            body: JSON.stringify(template)
+                        });
+
+                        if (res.ok) {
+                            showTemplateStatus('Template saved successfully', false);
+                            setTimeout(() => {
+                                document.getElementById('templateModal').style.display = 'none';
+                                loadTemplates();
+                            }, 1000);
+                        } else {
+                            const err = await res.json();
+                            showTemplateStatus('Error: ' + (err.error || 'Failed to save template'), true);
+                        }
+                    } catch (err) {
+                        showTemplateStatus('Error: ' + err.message, true);
+                    }
+                });
+            }
+
+            // Cancel template button
+            const cancelTemplateBtn = document.getElementById('cancelTemplateBtn');
+            if (cancelTemplateBtn && !cancelTemplateBtn.dataset.listenerAttached) {
+                cancelTemplateBtn.dataset.listenerAttached = 'true';
+                cancelTemplateBtn.addEventListener('click', () => {
+                    document.getElementById('templateModal').style.display = 'none';
+                });
+            }
+
+            // Close template modal on outside click
+            const templateModal = document.getElementById('templateModal');
+            if (templateModal && !templateModal.dataset.listenerAttached) {
+                templateModal.dataset.listenerAttached = 'true';
+                templateModal.addEventListener('click', (e) => {
+                    if (e.target === templateModal) {
+                        cancelTemplateBtn.click();
+                    }
+                });
+            }
+
+            function showTemplateStatus(message, isError = false) {
+                const status = document.getElementById('templateStatus');
+                status.textContent = message;
+                status.className = 'status ' + (isError ? 'error' : 'success');
+                status.style.display = 'block';
+                setTimeout(() => { status.style.display = 'none'; }, 5000);
             }
 
             // Site target change handler
@@ -936,10 +1094,100 @@
             }
         };
 
-        window.editTemplate = function(templateId) {
-            // TODO: Implement template editor modal
-            showStatus('Template editor coming soon', false);
+        window.editTemplate = async function(templateId) {
+            try {
+                const res = await fetch(`${API_BASE}/templates`, { headers });
+                if (res.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                const data = await res.json();
+                const template = data.templates.find(t => t.id === templateId);
+                if (template) {
+                    openTemplateModal(template);
+                } else {
+                    showStatus('Template not found', true);
+                }
+            } catch (err) {
+                showStatus('Error loading template: ' + err.message, true);
+            }
         };
+
+        function openTemplateModal(template = null) {
+            const modal = document.getElementById('templateModal');
+            const title = document.getElementById('templateModalTitle');
+            const form = document.getElementById('templateForm');
+            
+            if (template) {
+                title.textContent = 'Edit Template';
+                form.dataset.templateId = template.id;
+                document.getElementById('templateName').value = template.name || '';
+                document.getElementById('templateLevel').value = template.level || 'routine';
+                document.getElementById('templateSummary').value = template.summary || '';
+                document.getElementById('templateMessage').value = template.message || '';
+                document.getElementById('templateBgColor').value = template.background_color || '#B00020';
+                document.getElementById('templateFgColor').value = template.foreground_color || '#FFFFFF';
+                document.getElementById('templateContactName').value = template.alert_contact_name || '';
+                document.getElementById('templateContactPhone').value = template.alert_contact_phone || '';
+                document.getElementById('templateContactEmail').value = template.alert_contact_email || '';
+                document.getElementById('templateContactTeams').value = template.alert_contact_teams || '';
+                document.getElementById('templateBgPreview').style.background = template.background_color || '#B00020';
+                document.getElementById('templateFgPreview').style.background = template.foreground_color || '#FFFFFF';
+                
+                // Load sites and set selected
+                loadSitesForTemplate().then(() => {
+                    if (template.site) {
+                        document.getElementById('templateSite').value = template.site;
+                    }
+                });
+            } else {
+                title.textContent = 'Create Template';
+                form.dataset.templateId = '';
+                form.reset();
+                document.getElementById('templateBgColor').value = '#B00020';
+                document.getElementById('templateFgColor').value = '#FFFFFF';
+                document.getElementById('templateBgPreview').style.background = '#B00020';
+                document.getElementById('templateFgPreview').style.background = '#FFFFFF';
+                loadSitesForTemplate();
+                loadDefaultContactsIntoTemplate();
+            }
+            
+            modal.style.display = 'flex';
+        }
+
+        async function loadSitesForTemplate() {
+            try {
+                const res = await fetch(`${API_BASE}/sites`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    const select = document.getElementById('templateSite');
+                    select.innerHTML = '<option value="">All Sites</option>' +
+                        data.sites.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+                }
+            } catch (err) {
+                console.error('Error loading sites:', err);
+            }
+        }
+
+        function loadDefaultContactsIntoTemplate() {
+            const name = document.getElementById('default_contact_name')?.value || '';
+            const phone = document.getElementById('default_contact_phone')?.value || '';
+            const email = document.getElementById('default_contact_email')?.value || '';
+            const teams = document.getElementById('default_contact_teams')?.value || '';
+            
+            if (name) document.getElementById('templateContactName').value = name;
+            if (phone) document.getElementById('templateContactPhone').value = phone;
+            if (email) document.getElementById('templateContactEmail').value = email;
+            if (teams) document.getElementById('templateContactTeams').value = teams;
+        }
+
+        function showTemplateStatus(message, isError = false) {
+            const status = document.getElementById('templateStatus');
+            status.textContent = message;
+            status.className = 'status ' + (isError ? 'error' : 'success');
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 5000);
+        }
 
         window.deleteTemplate = async function(templateId) {
             if (!confirm('Delete this template?')) return;
