@@ -534,6 +534,268 @@
             // Load initial data
             loadSites(); // Load sites for checkboxes
             loadSettings(); // Load default settings
+            // Attach event listeners now that elements are visible
+            attachEventListeners();
+        }
+
+        function attachEventListeners() {
+            // Only attach if not already attached
+            if (window.listenersAttached) return;
+            window.listenersAttached = true;
+
+            // Color preview updates
+            const bgColor = document.getElementById('background_color');
+            const fgColor = document.getElementById('foreground_color');
+            if (bgColor) {
+                bgColor.addEventListener('input', (e) => {
+                    document.getElementById('bgPreview').style.background = e.target.value;
+                });
+            }
+            if (fgColor) {
+                fgColor.addEventListener('input', (e) => {
+                    document.getElementById('fgPreview').style.background = e.target.value;
+                });
+            }
+
+            // Form submit
+            const alertForm = document.getElementById('alertForm');
+            if (alertForm && !alertForm.dataset.listenerAttached) {
+                alertForm.dataset.listenerAttached = 'true';
+                alertForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const alert = {
+                        level: document.getElementById('level').value,
+                        summary: document.getElementById('summary').value,
+                        message: document.getElementById('message').value,
+                        background_color: document.getElementById('background_color').value,
+                        foreground_color: document.getElementById('foreground_color').value
+                    };
+
+                    const contactName = document.getElementById('contact_name').value.trim();
+                    const contactPhone = document.getElementById('contact_phone').value.trim();
+                    const contactEmail = document.getElementById('contact_email').value.trim();
+                    const contactTeams = document.getElementById('contact_teams').value.trim();
+
+                    if (contactName) alert.alert_contact_name = contactName;
+                    if (contactPhone) alert.alert_contact_phone = contactPhone;
+                    if (contactEmail) alert.alert_contact_email = contactEmail;
+                    if (contactTeams) alert.alert_contact_teams = contactTeams;
+                    
+                    // Handle site selection
+                    const siteTarget = document.querySelector('input[name="siteTarget"]:checked');
+                    if (siteTarget && siteTarget.value === 'selected') {
+                        const selectedSites = Array.from(document.querySelectorAll('input[name="selectedSites"]:checked'))
+                            .map(cb => cb.value);
+                        if (selectedSites.length > 0) {
+                            alert.site = selectedSites[0];
+                        }
+                    }
+
+                    try {
+                        const res = await fetch(`${API_BASE}/alert`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(alert)
+                        });
+
+                        if (res.ok) {
+                            showStatus('Alert updated successfully');
+                            await loadCurrentAlert();
+                        } else if (res.status === 401) {
+                            handleAuthError();
+                        } else {
+                            const err = await res.json();
+                            showStatus('Error: ' + (err.error || 'Failed to update alert'), true);
+                        }
+                    } catch (err) {
+                        showStatus('Error: ' + err.message, true);
+                    }
+                });
+            }
+
+            // Clear alert
+            const clearBtn = document.getElementById('clearBtn');
+            if (clearBtn && !clearBtn.dataset.listenerAttached) {
+                clearBtn.dataset.listenerAttached = 'true';
+                clearBtn.addEventListener('click', async () => {
+                    if (!confirm('Clear the current alert?')) return;
+                    try {
+                        const res = await fetch(`${API_BASE}/alert`, {
+                            method: 'DELETE',
+                            headers
+                        });
+
+                        if (res.ok) {
+                            showStatus('Alert cleared');
+                            await loadCurrentAlert();
+                            document.getElementById('alertForm').reset();
+                        } else if (res.status === 401) {
+                            handleAuthError();
+                        } else {
+                            const err = await res.json();
+                            showStatus('Error: ' + (err.error || 'Failed to clear alert'), true);
+                        }
+                    } catch (err) {
+                        showStatus('Error: ' + err.message, true);
+                    }
+                });
+            }
+
+            // Refresh
+            const refreshBtn = document.getElementById('refreshBtn');
+            if (refreshBtn && !refreshBtn.dataset.listenerAttached) {
+                refreshBtn.dataset.listenerAttached = 'true';
+                refreshBtn.addEventListener('click', async () => {
+                    try {
+                        const alert = await loadCurrentAlert();
+                        if (alert !== null) {
+                            populateForm(alert);
+                        }
+                    } catch (err) {
+                        showStatus('Error refreshing: ' + err.message, true);
+                    }
+                });
+            }
+
+            // Save as template button
+            const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+            if (saveTemplateBtn && !saveTemplateBtn.dataset.listenerAttached) {
+                saveTemplateBtn.dataset.listenerAttached = 'true';
+                saveTemplateBtn.addEventListener('click', async () => {
+                    const name = prompt('Enter template name:');
+                    if (!name || name.trim().length === 0) return;
+
+                    const template = {
+                        name: name.trim(),
+                        level: document.getElementById('level').value,
+                        summary: document.getElementById('summary').value,
+                        message: document.getElementById('message').value,
+                        background_color: document.getElementById('background_color').value,
+                        foreground_color: document.getElementById('foreground_color').value
+                    };
+
+                    const contactName = document.getElementById('contact_name').value.trim();
+                    const contactPhone = document.getElementById('contact_phone').value.trim();
+                    const contactEmail = document.getElementById('contact_email').value.trim();
+                    const contactTeams = document.getElementById('contact_teams').value.trim();
+
+                    if (contactName) template.alert_contact_name = contactName;
+                    if (contactPhone) template.alert_contact_phone = contactPhone;
+                    if (contactEmail) template.alert_contact_email = contactEmail;
+                    if (contactTeams) template.alert_contact_teams = contactTeams;
+
+                    // Handle site selection
+                    const siteTarget = document.querySelector('input[name="siteTarget"]:checked');
+                    if (siteTarget && siteTarget.value === 'selected') {
+                        const selectedSites = Array.from(document.querySelectorAll('input[name="selectedSites"]:checked'))
+                            .map(cb => cb.value);
+                        if (selectedSites.length > 0) {
+                            template.site = selectedSites[0];
+                        }
+                    }
+
+                    try {
+                        const res = await fetch(`${API_BASE}/templates`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(template)
+                        });
+
+                        if (res.ok) {
+                            showStatus('Template saved successfully');
+                            loadTemplates();
+                        } else {
+                            const err = await res.json();
+                            showStatus('Error: ' + (err.error || 'Failed to save template'), true);
+                        }
+                    } catch (err) {
+                        showStatus('Error: ' + err.message, true);
+                    }
+                });
+            }
+
+            // New template button - create template editor
+            const newTemplateBtn = document.getElementById('newTemplateBtn');
+            if (newTemplateBtn && !newTemplateBtn.dataset.listenerAttached) {
+                newTemplateBtn.dataset.listenerAttached = 'true';
+                newTemplateBtn.addEventListener('click', () => {
+                    // Show template creation form in a modal or inline
+                    const name = prompt('Enter template name:');
+                    if (!name || name.trim().length === 0) return;
+                    
+                    // Switch to alerts tab to use the form
+                    document.querySelector('[data-tab="alerts"]').click();
+                    // Clear form and set template name in a hidden field or use the form
+                    document.getElementById('alertForm').reset();
+                    document.getElementById('alertSource').value = 'manual';
+                    document.getElementById('templateSelect').style.display = 'none';
+                    loadDefaultContacts();
+                    // Store template name for saving
+                    document.getElementById('alertForm').dataset.templateName = name.trim();
+                    showStatus('Fill out the form below and click "Save as Template" to create the template');
+                });
+            }
+
+            // Site target change handler
+            document.querySelectorAll('input[name="siteTarget"]').forEach(radio => {
+                if (!radio.dataset.listenerAttached) {
+                    radio.dataset.listenerAttached = 'true';
+                    radio.addEventListener('change', (e) => {
+                        document.getElementById('siteCheckboxes').style.display = e.target.value === 'selected' ? 'block' : 'none';
+                    });
+                }
+            });
+
+            // Alert source change handler
+            const alertSource = document.getElementById('alertSource');
+            if (alertSource && !alertSource.dataset.listenerAttached) {
+                alertSource.dataset.listenerAttached = 'true';
+                alertSource.addEventListener('change', (e) => {
+                    const isTemplate = e.target.value === 'template';
+                    document.getElementById('templateSelect').style.display = isTemplate ? 'block' : 'none';
+                    if (isTemplate) loadTemplatesForSelect();
+                });
+            }
+
+            // Save defaults button
+            const saveDefaultsBtn = document.getElementById('saveDefaultsBtn');
+            if (saveDefaultsBtn && !saveDefaultsBtn.dataset.listenerAttached) {
+                saveDefaultsBtn.dataset.listenerAttached = 'true';
+                saveDefaultsBtn.addEventListener('click', async () => {
+                    try {
+                        const defaults = {
+                            default_contact_name: document.getElementById('default_contact_name').value.trim(),
+                            default_contact_phone: document.getElementById('default_contact_phone').value.trim(),
+                            default_contact_email: document.getElementById('default_contact_email').value.trim(),
+                            default_contact_teams: document.getElementById('default_contact_teams').value.trim()
+                        };
+
+                        const res = await fetch(`${API_BASE}/settings`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(defaults)
+                        });
+
+                        if (res.ok) {
+                            showStatus('Default contact information saved');
+                        } else {
+                            const err = await res.json();
+                            showStatus('Error: ' + (err.error || 'Failed to save defaults'), true);
+                        }
+                    } catch (err) {
+                        showStatus('Error: ' + err.message, true);
+                    }
+                });
+            }
+
+            // Change key button in settings
+            const changeKeyBtnSettings = document.getElementById('changeKeyBtnSettings');
+            if (changeKeyBtnSettings && !changeKeyBtnSettings.dataset.listenerAttached) {
+                changeKeyBtnSettings.dataset.listenerAttached = 'true';
+                changeKeyBtnSettings.addEventListener('click', () => {
+                    document.getElementById('changeKeyBtn').click();
+                });
+            }
         }
 
         function hideMainContent() {
@@ -595,13 +857,7 @@
             }
         })();
 
-        // Color preview updates
-        document.getElementById('background_color').addEventListener('input', (e) => {
-            document.getElementById('bgPreview').style.background = e.target.value;
-        });
-        document.getElementById('foreground_color').addEventListener('input', (e) => {
-            document.getElementById('fgPreview').style.background = e.target.value;
-        });
+        // Color preview updates - moved to attachEventListeners
 
         // Handle authentication errors
         function handleAuthError() {
@@ -875,68 +1131,7 @@
             }
         });
 
-        // New template button
-        document.getElementById('newTemplateBtn').addEventListener('click', () => {
-            // Switch to alerts tab and clear form for new template
-            document.querySelector('[data-tab="alerts"]').click();
-            document.getElementById('alertForm').reset();
-            document.getElementById('alertSource').value = 'manual';
-            document.getElementById('templateSelect').style.display = 'none';
-            loadDefaultContacts();
-        });
-
-        // Save as template button
-        document.getElementById('saveTemplateBtn').addEventListener('click', async () => {
-            const name = prompt('Enter template name:');
-            if (!name || name.trim().length === 0) return;
-
-            const template = {
-                name: name.trim(),
-                level: document.getElementById('level').value,
-                summary: document.getElementById('summary').value,
-                message: document.getElementById('message').value,
-                background_color: document.getElementById('background_color').value,
-                foreground_color: document.getElementById('foreground_color').value
-            };
-
-            const contactName = document.getElementById('contact_name').value.trim();
-            const contactPhone = document.getElementById('contact_phone').value.trim();
-            const contactEmail = document.getElementById('contact_email').value.trim();
-            const contactTeams = document.getElementById('contact_teams').value.trim();
-
-            if (contactName) template.alert_contact_name = contactName;
-            if (contactPhone) template.alert_contact_phone = contactPhone;
-            if (contactEmail) template.alert_contact_email = contactEmail;
-            if (contactTeams) template.alert_contact_teams = contactTeams;
-
-            // Handle site selection
-            const siteTarget = document.querySelector('input[name="siteTarget"]:checked').value;
-            if (siteTarget === 'selected') {
-                const selectedSites = Array.from(document.querySelectorAll('input[name="selectedSites"]:checked'))
-                    .map(cb => cb.value);
-                if (selectedSites.length > 0) {
-                    template.site = selectedSites[0]; // Store first selected site
-                }
-            }
-
-            try {
-                const res = await fetch(`${API_BASE}/templates`, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(template)
-                });
-
-                if (res.ok) {
-                    showStatus('Template saved successfully');
-                    loadTemplates();
-                } else {
-                    const err = await res.json();
-                    showStatus('Error: ' + (err.error || 'Failed to save template'), true);
-                }
-            } catch (err) {
-                showStatus('Error: ' + err.message, true);
-            }
-        });
+        // New template button, Save as template - moved to attachEventListeners
 
         // Refresh systems button
         document.getElementById('refreshSystemsBtn').addEventListener('click', loadSystems);
@@ -979,50 +1174,9 @@
             }
         }
 
-        // Change key button in settings
-        document.getElementById('changeKeyBtnSettings').addEventListener('click', () => {
-            document.getElementById('changeKeyBtn').click(); // Reuse existing modal
-        });
+        // Change key button, Save defaults - moved to attachEventListeners
 
-        // Save defaults button
-        document.getElementById('saveDefaultsBtn').addEventListener('click', async () => {
-            try {
-                const defaults = {
-                    default_contact_name: document.getElementById('default_contact_name').value.trim(),
-                    default_contact_phone: document.getElementById('default_contact_phone').value.trim(),
-                    default_contact_email: document.getElementById('default_contact_email').value.trim(),
-                    default_contact_teams: document.getElementById('default_contact_teams').value.trim()
-                };
-
-                const res = await fetch(`${API_BASE}/settings`, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(defaults)
-                });
-
-                if (res.ok) {
-                    showStatus('Default contact information saved');
-                } else {
-                    showStatus('Error saving defaults', true);
-                }
-            } catch (err) {
-                showStatus('Error: ' + err.message, true);
-            }
-        });
-
-        // Alert source change handler
-        document.getElementById('alertSource').addEventListener('change', (e) => {
-            const isTemplate = e.target.value === 'template';
-            document.getElementById('templateSelect').style.display = isTemplate ? 'block' : 'none';
-            if (isTemplate) loadTemplatesForSelect();
-        });
-
-        // Site target change handler
-        document.querySelectorAll('input[name="siteTarget"]').forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                document.getElementById('siteCheckboxes').style.display = e.target.value === 'selected' ? 'block' : 'none';
-            });
-        });
+        // Alert source change handler, Site target - moved to attachEventListeners
 
         async function loadTemplatesForSelect() {
             try {
@@ -1087,95 +1241,7 @@
             setTimeout(() => { status.style.display = 'none'; }, 5000);
         }
 
-        // Form submit
-        document.getElementById('alertForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const alert = {
-                level: document.getElementById('level').value,
-                summary: document.getElementById('summary').value,
-                message: document.getElementById('message').value,
-                background_color: document.getElementById('background_color').value,
-                foreground_color: document.getElementById('foreground_color').value
-            };
-
-            const contactName = document.getElementById('contact_name').value.trim();
-            const contactPhone = document.getElementById('contact_phone').value.trim();
-            const contactEmail = document.getElementById('contact_email').value.trim();
-            const contactTeams = document.getElementById('contact_teams').value.trim();
-
-            if (contactName) alert.alert_contact_name = contactName;
-            if (contactPhone) alert.alert_contact_phone = contactPhone;
-            if (contactEmail) alert.alert_contact_email = contactEmail;
-            if (contactTeams) alert.alert_contact_teams = contactTeams;
-            
-            // Handle site selection
-            const siteTarget = document.querySelector('input[name="siteTarget"]:checked').value;
-            if (siteTarget === 'selected') {
-                const selectedSites = Array.from(document.querySelectorAll('input[name="selectedSites"]:checked'))
-                    .map(cb => cb.value);
-                if (selectedSites.length > 0) {
-                    // For now, send to first selected site (can be enhanced to send to multiple)
-                    alert.site = selectedSites[0];
-                }
-            }
-            // If "all sites", don't set site field (shows to everyone)
-
-            try {
-                const res = await fetch(`${API_BASE}/alert`, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(alert)
-                });
-
-                if (res.ok) {
-                    showStatus('Alert updated successfully');
-                    await loadCurrentAlert();
-                } else if (res.status === 401) {
-                    handleAuthError();
-                } else {
-                    const err = await res.json();
-                    showStatus('Error: ' + (err.error || 'Failed to update alert'), true);
-                }
-            } catch (err) {
-                showStatus('Error: ' + err.message, true);
-            }
-        });
-
-        // Clear alert
-        document.getElementById('clearBtn').addEventListener('click', async () => {
-            if (!confirm('Clear the current alert?')) return;
-            try {
-                const res = await fetch(`${API_BASE}/alert`, {
-                    method: 'DELETE',
-                    headers
-                });
-
-                if (res.ok) {
-                    showStatus('Alert cleared');
-                    await loadCurrentAlert();
-                    document.getElementById('alertForm').reset();
-                } else if (res.status === 401) {
-                    handleAuthError();
-                } else {
-                    const err = await res.json();
-                    showStatus('Error: ' + (err.error || 'Failed to clear alert'), true);
-                }
-            } catch (err) {
-                showStatus('Error: ' + err.message, true);
-            }
-        });
-
-        // Refresh
-        document.getElementById('refreshBtn').addEventListener('click', async () => {
-            try {
-                const alert = await loadCurrentAlert();
-                if (alert !== null) {
-                    populateForm(alert);
-                }
-            } catch (err) {
-                showStatus('Error refreshing: ' + err.message, true);
-            }
-        });
+        // Form submit, Clear, Refresh - moved to attachEventListeners
 
         // Admin Key Management
         const keyModal = document.getElementById('keyModal');
