@@ -12,6 +12,12 @@ namespace GridBanner
         public BannerMenuWindow()
         {
             InitializeComponent();
+        }
+        
+        protected override void OnContentRendered(EventArgs e)
+        {
+            base.OnContentRendered(e);
+            // Set visibility after property is set (constructor runs before property assignment)
             TerminateButton.Visibility = PermitTerminate ? Visibility.Visible : Visibility.Collapsed;
         }
 
