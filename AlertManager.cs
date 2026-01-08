@@ -25,6 +25,7 @@ namespace GridBanner
         private string? _url;
         private TimeSpan _pollInterval = TimeSpan.FromSeconds(5);
         private HashSet<string>? _workstationSites;  // null = no filtering (backward compatible)
+        private SystemInfo? _systemInfo;  // System info to send when polling
 
         private FileSystemWatcher? _watcher;
         private Timer? _debounceTimer;
@@ -38,11 +39,20 @@ namespace GridBanner
 
         private AlertMessage? _current;
 
-        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null)
+        public record SystemInfo(
+            string WorkstationName,
+            string Username,
+            string Classification,
+            string Location,
+            string Company
+        );
+
+        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null, SystemInfo? systemInfo = null)
         {
             _filePath = string.IsNullOrWhiteSpace(alertFileLocation) ? null : alertFileLocation.Trim();
             _url = string.IsNullOrWhiteSpace(alertUrl) ? null : alertUrl.Trim();
             _pollInterval = pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : pollInterval;
+            _systemInfo = systemInfo;
 
             // Parse comma-separated site names (case-insensitive)
             if (string.IsNullOrWhiteSpace(workstationSiteNames))
@@ -186,16 +196,49 @@ namespace GridBanner
 
         private async Task<AlertMessage?> TryLoadFromUrlAsync(string url, CancellationToken ct)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            // Send system info if available
+            if (_systemInfo != null)
+            {
+                try
+                {
+                    var systemInfoJson = JsonSerializer.Serialize(new
+                    {
+                        workstation_name = _systemInfo.WorkstationName,
+                        username = _systemInfo.Username,
+                        classification = _systemInfo.Classification,
+                        location = _systemInfo.Location,
+                        company = _systemInfo.Company
+                    }, _jsonOptions);
 
-            if (!resp.IsSuccessStatusCode)
+                    using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                    req.Content = new StringContent(systemInfoJson, Encoding.UTF8, "application/json");
+                    using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        return null;
+                    }
+
+                    var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    return ParseAlertJson(json);
+                }
+                catch
+                {
+                    // Fall back to GET if POST fails (backward compatibility)
+                }
+            }
+
+            // Fallback to GET for backward compatibility or if no system info
+            using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
+            using var getResp = await _httpClient.SendAsync(getReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+
+            if (!getResp.IsSuccessStatusCode)
             {
                 return null;
             }
 
-            var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            return ParseAlertJson(json);
+            var getJson = await getResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return ParseAlertJson(getJson);
         }
 
         private AlertMessage? ParseAlertJson(string? json)

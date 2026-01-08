@@ -7,10 +7,48 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const ALERT_FILE = process.env.ALERT_FILE || path.join(__dirname, 'alerts', 'current.json');
+const DATA_FILE = path.join(__dirname, 'data.json');
 
 // Ensure alerts directory exists
 const alertsDir = path.dirname(ALERT_FILE);
 fs.mkdir(alertsDir, { recursive: true }).catch(() => {});
+
+// In-memory data storage
+let dataStore = {
+  systems: {},  // Key: workstation_name, Value: { last_seen, workstation_name, username, classification, location, company }
+  sites: [],   // Array of { id, name }
+  templates: [] // Array of { id, name, level, summary, message, background_color, foreground_color, site, contact fields }
+};
+
+// Load data store from file
+async function loadDataStore() {
+  try {
+    const data = await fs.readFile(DATA_FILE, 'utf8');
+    dataStore = JSON.parse(data);
+    // Ensure all required fields exist
+    if (!dataStore.systems) dataStore.systems = {};
+    if (!dataStore.sites) dataStore.sites = [];
+    if (!dataStore.templates) dataStore.templates = [];
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('Error loading data store:', err);
+    }
+    // Use defaults
+    dataStore = { systems: {}, sites: [], templates: [] };
+  }
+}
+
+// Save data store to file
+async function saveDataStore() {
+  try {
+    await fs.writeFile(DATA_FILE, JSON.stringify(dataStore, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Error saving data store:', err);
+  }
+}
+
+// Initialize data store on startup
+loadDataStore().catch(() => {});
 
 // Load or initialize admin key
 let ADMIN_KEY = process.env.ADMIN_KEY || 'adminkey';
@@ -80,9 +118,55 @@ app.get('/api/alert', async (req, res) => {
   }
 });
 
-// POST /api/alert - Create or update alert (requires admin key)
-app.post('/api/alert', requireAdminKey, async (req, res) => {
+// POST /api/alert - Either create/update alert (admin) OR report system info (client)
+app.post('/api/alert', async (req, res) => {
   try {
+    const providedKey = req.headers['x-admin-key'];
+    const isAdmin = providedKey && typeof providedKey === 'string' && providedKey.trim() === ADMIN_KEY;
+    
+    // Check if this is system info reporting (has workstation_name but no admin key)
+    if (!isAdmin && req.body.workstation_name) {
+      // Client reporting system info
+      const systemInfo = {
+        workstation_name: req.body.workstation_name || '',
+        username: req.body.username || '',
+        classification: req.body.classification || '',
+        location: req.body.location || '',
+        company: req.body.company || ''
+      };
+      
+      // Update system info
+      const key = systemInfo.workstation_name || 'unknown';
+      dataStore.systems[key] = {
+        ...systemInfo,
+        last_seen: new Date().toISOString()
+      };
+      
+      // Save data store (async, don't wait)
+      saveDataStore().catch(() => {});
+      
+      // Return current alert (if any)
+      try {
+        const data = await fs.readFile(ALERT_FILE, 'utf8');
+        const trimmed = data.trim();
+        if (trimmed.length === 0) {
+          return res.status(204).send();
+        }
+        const alert = JSON.parse(trimmed);
+        return res.json(alert);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          return res.status(204).send();
+        }
+        return res.status(204).send(); // On error, return no alert
+      }
+    }
+    
+    // Admin creating/updating alert
+    if (!isAdmin) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid admin key' });
+    }
+    
     const alert = req.body;
     
     // Basic validation
@@ -101,8 +185,8 @@ app.post('/api/alert', requireAdminKey, async (req, res) => {
     
     res.json({ success: true, message: 'Alert updated' });
   } catch (err) {
-    console.error('Error writing alert:', err);
-    res.status(500).json({ error: 'Failed to write alert' });
+    console.error('Error in POST /api/alert:', err);
+    res.status(500).json({ error: 'Failed to process request' });
   }
 });
 
@@ -169,24 +253,223 @@ app.get('/api/admin/key', requireAdminKey, async (req, res) => {
   });
 });
 
+// GET /api/systems - Get all systems (admin only)
+app.get('/api/systems', requireAdminKey, async (req, res) => {
+  try {
+    const systems = Object.values(dataStore.systems);
+    res.json({ systems });
+  } catch (err) {
+    console.error('Error getting systems:', err);
+    res.status(500).json({ error: 'Failed to get systems' });
+  }
+});
+
+// GET /api/sites - Get all sites (admin only)
+app.get('/api/sites', requireAdminKey, async (req, res) => {
+  try {
+    res.json({ sites: dataStore.sites });
+  } catch (err) {
+    console.error('Error getting sites:', err);
+    res.status(500).json({ error: 'Failed to get sites' });
+  }
+});
+
+// POST /api/sites - Create a site (admin only)
+app.post('/api/sites', requireAdminKey, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Site name is required' });
+    }
+    
+    const id = Date.now().toString();
+    const site = { id, name: name.trim() };
+    dataStore.sites.push(site);
+    await saveDataStore();
+    
+    res.json({ success: true, site });
+  } catch (err) {
+    console.error('Error creating site:', err);
+    res.status(500).json({ error: 'Failed to create site' });
+  }
+});
+
+// PUT /api/sites/:id - Update a site (admin only)
+app.put('/api/sites/:id', requireAdminKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Site name is required' });
+    }
+    
+    const site = dataStore.sites.find(s => s.id === id);
+    if (!site) {
+      return res.status(404).json({ error: 'Site not found' });
+    }
+    
+    site.name = name.trim();
+    await saveDataStore();
+    
+    res.json({ success: true, site });
+  } catch (err) {
+    console.error('Error updating site:', err);
+    res.status(500).json({ error: 'Failed to update site' });
+  }
+});
+
+// DELETE /api/sites/:id - Delete a site (admin only)
+app.delete('/api/sites/:id', requireAdminKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = dataStore.sites.findIndex(s => s.id === id);
+    
+    if (index === -1) {
+      return res.status(404).json({ error: 'Site not found' });
+    }
+    
+    dataStore.sites.splice(index, 1);
+    await saveDataStore();
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting site:', err);
+    res.status(500).json({ error: 'Failed to delete site' });
+  }
+});
+
+// GET /api/templates - Get all templates (admin only)
+app.get('/api/templates', requireAdminKey, async (req, res) => {
+  try {
+    res.json({ templates: dataStore.templates });
+  } catch (err) {
+    console.error('Error getting templates:', err);
+    res.status(500).json({ error: 'Failed to get templates' });
+  }
+});
+
+// POST /api/templates - Create a template (admin only)
+app.post('/api/templates', requireAdminKey, async (req, res) => {
+  try {
+    const template = req.body;
+    
+    if (!template.name || !template.level || !template.summary || !template.message || 
+        !template.background_color || !template.foreground_color) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: name, level, summary, message, background_color, foreground_color' 
+      });
+    }
+    
+    const id = Date.now().toString();
+    const newTemplate = {
+      id,
+      name: template.name.trim(),
+      level: template.level.trim(),
+      summary: template.summary.trim(),
+      message: template.message.trim(),
+      background_color: template.background_color.trim(),
+      foreground_color: template.foreground_color.trim(),
+      site: template.site?.trim() || null,
+      alert_contact_name: template.alert_contact_name?.trim() || null,
+      alert_contact_phone: template.alert_contact_phone?.trim() || null,
+      alert_contact_email: template.alert_contact_email?.trim() || null,
+      alert_contact_teams: template.alert_contact_teams?.trim() || null
+    };
+    
+    dataStore.templates.push(newTemplate);
+    await saveDataStore();
+    
+    res.json({ success: true, template: newTemplate });
+  } catch (err) {
+    console.error('Error creating template:', err);
+    res.status(500).json({ error: 'Failed to create template' });
+  }
+});
+
+// PUT /api/templates/:id - Update a template (admin only)
+app.put('/api/templates/:id', requireAdminKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const template = req.body;
+    
+    const existing = dataStore.templates.find(t => t.id === id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    
+    if (template.name) existing.name = template.name.trim();
+    if (template.level) existing.level = template.level.trim();
+    if (template.summary) existing.summary = template.summary.trim();
+    if (template.message) existing.message = template.message.trim();
+    if (template.background_color) existing.background_color = template.background_color.trim();
+    if (template.foreground_color) existing.foreground_color = template.foreground_color.trim();
+    if (template.site !== undefined) existing.site = template.site?.trim() || null;
+    if (template.alert_contact_name !== undefined) existing.alert_contact_name = template.alert_contact_name?.trim() || null;
+    if (template.alert_contact_phone !== undefined) existing.alert_contact_phone = template.alert_contact_phone?.trim() || null;
+    if (template.alert_contact_email !== undefined) existing.alert_contact_email = template.alert_contact_email?.trim() || null;
+    if (template.alert_contact_teams !== undefined) existing.alert_contact_teams = template.alert_contact_teams?.trim() || null;
+    
+    await saveDataStore();
+    
+    res.json({ success: true, template: existing });
+  } catch (err) {
+    console.error('Error updating template:', err);
+    res.status(500).json({ error: 'Failed to update template' });
+  }
+});
+
+// DELETE /api/templates/:id - Delete a template (admin only)
+app.delete('/api/templates/:id', requireAdminKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = dataStore.templates.findIndex(t => t.id === id);
+    
+    if (index === -1) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    
+    dataStore.templates.splice(index, 1);
+    await saveDataStore();
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting template:', err);
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
 // Static files (must be after API routes)
 app.use(express.static('public'));
 
 // Start server
 app.listen(PORT, async () => {
-  // Ensure admin key is loaded
+  // Ensure admin key and data store are loaded
   await loadAdminKey();
+  await loadDataStore();
   
   console.log(`GridBanner Alert Server running on http://localhost:${PORT}`);
   console.log(`Admin key: ${ADMIN_KEY}`);
   console.log(`Config file: ${CONFIG_FILE}`);
   console.log(`Alert file: ${ALERT_FILE}`);
+  console.log(`Data file: ${DATA_FILE}`);
+  console.log(`Systems tracked: ${Object.keys(dataStore.systems).length}`);
+  console.log(`Sites: ${dataStore.sites.length}`);
+  console.log(`Templates: ${dataStore.templates.length}`);
   console.log('\nAPI Endpoints:');
   console.log(`  GET  /api/alert          - Get current alert (public)`);
-  console.log(`  POST /api/alert          - Create/update alert (admin)`);
+  console.log(`  POST /api/alert          - Create/update alert (admin) OR report system info (client)`);
   console.log(`  DELETE /api/alert        - Clear alert (admin)`);
-  console.log(`  GET  /api/alerts/list    - List alerts (admin)`);
-  console.log(`  POST /api/admin/key      - Change admin key (admin)`);
+  console.log(`  GET  /api/systems        - Get all systems (admin)`);
+  console.log(`  GET  /api/sites          - Get all sites (admin)`);
+  console.log(`  POST /api/sites          - Create site (admin)`);
+  console.log(`  PUT  /api/sites/:id      - Update site (admin)`);
+  console.log(`  DELETE /api/sites/:id    - Delete site (admin)`);
+  console.log(`  GET  /api/templates      - Get all templates (admin)`);
+  console.log(`  POST /api/templates      - Create template (admin)`);
+  console.log(`  PUT  /api/templates/:id  - Update template (admin)`);
+  console.log(`  DELETE /api/templates/:id - Delete template (admin)`);
+  console.log(`  POST /api/admin/key     - Change admin key (admin)`);
   console.log(`  GET  /api/admin/key      - Get admin key status (admin)`);
   console.log(`  GET  /                   - Admin web interface`);
 });

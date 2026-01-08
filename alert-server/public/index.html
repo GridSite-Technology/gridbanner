@@ -129,8 +129,73 @@
             grid-template-columns: 1fr 1fr;
             gap: 15px;
         }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #dee2e6;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        .tab:hover {
+            color: #007bff;
+        }
+        .tab.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table th, table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+        table th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        table tr:hover {
+            background: #f8f9fa;
+        }
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .list-item-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
         @media (max-width: 768px) {
             .grid, .color-group { grid-template-columns: 1fr; }
+            .tabs { flex-wrap: wrap; }
+            table { font-size: 12px; }
         }
     </style>
 </head>
@@ -165,12 +230,57 @@
             </div>
         </div>
 
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab active" data-tab="alerts">Alerts</button>
+            <button class="tab" data-tab="templates">Templates</button>
+            <button class="tab" data-tab="sites">Sites</button>
+            <button class="tab" data-tab="systems">Systems</button>
+        </div>
+
+        <!-- Alerts Tab -->
+        <div id="tab-alerts" class="tab-content active">
         <div class="current-alert" id="currentAlert">
             <h3>Current Alert</h3>
             <pre id="currentAlertContent">Loading...</pre>
         </div>
 
         <form id="alertForm">
+            <div class="form-group">
+                <label>Send From</label>
+                <select id="alertSource" style="margin-bottom: 10px;">
+                    <option value="manual">One-Time Alert (Manual Entry)</option>
+                    <option value="template">Template</option>
+                </select>
+                <select id="templateSelect" style="display: none; margin-bottom: 10px;">
+                    <option value="">Select a template...</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Target Sites</label>
+                <div style="margin-bottom: 10px;">
+                    <label style="font-weight: normal;">
+                        <input type="radio" name="siteTarget" value="all" checked> All Sites
+                    </label>
+                    <label style="font-weight: normal; margin-left: 20px;">
+                        <input type="radio" name="siteTarget" value="selected"> Selected Sites
+                    </label>
+                </div>
+                <div id="siteCheckboxes" style="display: none; max-height: 150px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                    <!-- Sites will be populated here -->
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="level">Alert Level *</label>
+                <select id="level" required>
+                    <option value="routine">Routine</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="critical">Critical</option>
+                    <option value="super_critical">Super Critical</option>
+                </select>
+            </div>
             <div class="form-group">
                 <label for="level">Alert Level *</label>
                 <select id="level" required>
@@ -223,19 +333,58 @@
                 </div>
             </div>
 
-            <div class="form-group">
-                <label for="site">Site (optional)</label>
-                <input type="text" id="site" placeholder="Leave empty for all sites, or specify site name">
-            </div>
-
             <div class="button-group">
-                <button type="submit" class="btn-primary">Update Alert</button>
+                <button type="submit" class="btn-primary">Send Alert</button>
                 <button type="button" class="btn-danger" id="clearBtn">Clear Alert</button>
                 <button type="button" class="btn-secondary" id="refreshBtn">Refresh</button>
             </div>
         </form>
 
         <div class="status" id="status"></div>
+        </div>
+
+        <!-- Templates Tab -->
+        <div id="tab-templates" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Templates</h2>
+                <button type="button" class="btn-primary" id="newTemplateBtn">New Template</button>
+            </div>
+            <div id="templatesList"></div>
+        </div>
+
+        <!-- Sites Tab -->
+        <div id="tab-sites" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Sites</h2>
+                <button type="button" class="btn-primary" id="newSiteBtn">New Site</button>
+            </div>
+            <div id="sitesList"></div>
+        </div>
+
+        <!-- Systems Tab -->
+        <div id="tab-systems" class="tab-content">
+            <h2>Systems</h2>
+            <div style="margin-bottom: 10px;">
+                <button type="button" class="btn-secondary" id="refreshSystemsBtn">Refresh</button>
+            </div>
+            <div style="overflow-x: auto;">
+                <table id="systemsTable">
+                    <thead>
+                        <tr>
+                            <th>Workstation</th>
+                            <th>Username</th>
+                            <th>Company</th>
+                            <th>Classification</th>
+                            <th>Location</th>
+                            <th>Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="systemsTableBody">
+                        <tr><td colspan="6">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
     </div>
 
@@ -314,6 +463,8 @@
         function showMainContent() {
             document.getElementById('authScreen').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
+            // Load initial data
+            loadSites(); // Load sites for checkboxes
         }
 
         function hideMainContent() {
@@ -390,6 +541,287 @@
             document.getElementById('authKey').focus();
         }
 
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                // Update tab buttons
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                // Update tab content
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(`tab-${tabName}`).classList.add('active');
+                
+                // Load data when switching to certain tabs
+                if (tabName === 'templates') loadTemplates();
+                if (tabName === 'sites') loadSites();
+                if (tabName === 'systems') loadSystems();
+            });
+        });
+
+        // Templates management
+        async function loadTemplates() {
+            try {
+                const res = await fetch(`${API_BASE}/templates`, { headers });
+                if (res.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                const data = await res.json();
+                renderTemplates(data.templates || []);
+            } catch (err) {
+                document.getElementById('templatesList').innerHTML = '<div class="status error">Error loading templates: ' + err.message + '</div>';
+            }
+        }
+
+        function renderTemplates(templates) {
+            const container = document.getElementById('templatesList');
+            if (templates.length === 0) {
+                container.innerHTML = '<p>No templates yet. Click "New Template" to create one.</p>';
+                return;
+            }
+            container.innerHTML = templates.map(t => `
+                <div class="list-item">
+                    <div>
+                        <strong>${t.name}</strong> (${t.level})
+                        <div style="font-size: 12px; color: #666; margin-top: 4px;">${t.summary}</div>
+                    </div>
+                    <div class="list-item-actions">
+                        <button class="btn-primary btn-small" onclick="useTemplate('${t.id}')">Use</button>
+                        <button class="btn-secondary btn-small" onclick="editTemplate('${t.id}')">Edit</button>
+                        <button class="btn-danger btn-small" onclick="deleteTemplate('${t.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.useTemplate = async function(templateId) {
+            try {
+                const res = await fetch(`${API_BASE}/templates`, { headers });
+                const data = await res.json();
+                const template = data.templates.find(t => t.id === templateId);
+                if (template) {
+                    // Switch to alerts tab and populate form
+                    document.querySelector('[data-tab="alerts"]').click();
+                    populateFormFromTemplate(template);
+                }
+            } catch (err) {
+                showStatus('Error loading template: ' + err.message, true);
+            }
+        };
+
+        window.editTemplate = function(templateId) {
+            // TODO: Implement template editor modal
+            showStatus('Template editor coming soon', false);
+        };
+
+        window.deleteTemplate = async function(templateId) {
+            if (!confirm('Delete this template?')) return;
+            try {
+                const res = await fetch(`${API_BASE}/templates/${templateId}`, {
+                    method: 'DELETE',
+                    headers
+                });
+                if (res.ok) {
+                    loadTemplates();
+                    showStatus('Template deleted');
+                } else {
+                    showStatus('Error deleting template', true);
+                }
+            } catch (err) {
+                showStatus('Error: ' + err.message, true);
+            }
+        };
+
+        function populateFormFromTemplate(template) {
+            document.getElementById('level').value = template.level;
+            document.getElementById('summary').value = template.summary;
+            document.getElementById('message').value = template.message;
+            document.getElementById('background_color').value = template.background_color;
+            document.getElementById('foreground_color').value = template.foreground_color;
+            document.getElementById('contact_name').value = template.alert_contact_name || '';
+            document.getElementById('contact_phone').value = template.alert_contact_phone || '';
+            document.getElementById('contact_email').value = template.alert_contact_email || '';
+            document.getElementById('contact_teams').value = template.alert_contact_teams || '';
+            document.getElementById('bgPreview').style.background = template.background_color;
+            document.getElementById('fgPreview').style.background = template.foreground_color;
+        }
+
+        // Sites management
+        async function loadSites() {
+            try {
+                const res = await fetch(`${API_BASE}/sites`, { headers });
+                if (res.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                const data = await res.json();
+                renderSites(data.sites || []);
+                updateSiteCheckboxes(data.sites || []);
+            } catch (err) {
+                document.getElementById('sitesList').innerHTML = '<div class="status error">Error loading sites: ' + err.message + '</div>';
+            }
+        }
+
+        function renderSites(sites) {
+            const container = document.getElementById('sitesList');
+            if (sites.length === 0) {
+                container.innerHTML = '<p>No sites yet. Click "New Site" to create one.</p>';
+                return;
+            }
+            container.innerHTML = sites.map(s => `
+                <div class="list-item">
+                    <div><strong>${s.name}</strong></div>
+                    <div class="list-item-actions">
+                        <button class="btn-secondary btn-small" onclick="editSite('${s.id}')">Edit</button>
+                        <button class="btn-danger btn-small" onclick="deleteSite('${s.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateSiteCheckboxes(sites) {
+            const container = document.getElementById('siteCheckboxes');
+            container.innerHTML = sites.map(s => `
+                <label style="display: block; font-weight: normal; margin-bottom: 8px;">
+                    <input type="checkbox" name="selectedSites" value="${s.name}" style="margin-right: 8px;">
+                    ${s.name}
+                </label>
+            `).join('');
+        }
+
+        window.editSite = function(siteId) {
+            const name = prompt('Enter new site name:');
+            if (!name || name.trim().length === 0) return;
+            fetch(`${API_BASE}/sites/${siteId}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ name: name.trim() })
+            }).then(res => {
+                if (res.ok) {
+                    loadSites();
+                    showStatus('Site updated');
+                } else {
+                    showStatus('Error updating site', true);
+                }
+            }).catch(err => showStatus('Error: ' + err.message, true));
+        };
+
+        window.deleteSite = async function(siteId) {
+            if (!confirm('Delete this site?')) return;
+            try {
+                const res = await fetch(`${API_BASE}/sites/${siteId}`, {
+                    method: 'DELETE',
+                    headers
+                });
+                if (res.ok) {
+                    loadSites();
+                    showStatus('Site deleted');
+                } else {
+                    showStatus('Error deleting site', true);
+                }
+            } catch (err) {
+                showStatus('Error: ' + err.message, true);
+            }
+        };
+
+        // Systems monitoring
+        async function loadSystems() {
+            try {
+                const res = await fetch(`${API_BASE}/systems`, { headers });
+                if (res.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                const data = await res.json();
+                renderSystems(data.systems || []);
+            } catch (err) {
+                document.getElementById('systemsTableBody').innerHTML = '<tr><td colspan="6">Error loading systems: ' + err.message + '</td></tr>';
+            }
+        }
+
+        function renderSystems(systems) {
+            const tbody = document.getElementById('systemsTableBody');
+            if (systems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6">No systems have reported in yet.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = systems.map(s => {
+                const lastSeen = s.last_seen ? new Date(s.last_seen).toLocaleString() : 'Never';
+                return `
+                    <tr>
+                        <td>${s.workstation_name || 'Unknown'}</td>
+                        <td>${s.username || 'Unknown'}</td>
+                        <td>${s.company || 'Unknown'}</td>
+                        <td>${s.classification || 'Unknown'}</td>
+                        <td>${s.location || 'Unknown'}</td>
+                        <td>${lastSeen}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // New site button
+        document.getElementById('newSiteBtn').addEventListener('click', async () => {
+            const name = prompt('Enter site name:');
+            if (!name || name.trim().length === 0) return;
+            try {
+                const res = await fetch(`${API_BASE}/sites`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ name: name.trim() })
+                });
+                if (res.ok) {
+                    loadSites();
+                    showStatus('Site created');
+                } else {
+                    showStatus('Error creating site', true);
+                }
+            } catch (err) {
+                showStatus('Error: ' + err.message, true);
+            }
+        });
+
+        // New template button
+        document.getElementById('newTemplateBtn').addEventListener('click', () => {
+            // Switch to alerts tab and clear form for new template
+            document.querySelector('[data-tab="alerts"]').click();
+            document.getElementById('alertForm').reset();
+            showStatus('Fill out the form and save as template (coming soon)', false);
+        });
+
+        // Refresh systems button
+        document.getElementById('refreshSystemsBtn').addEventListener('click', loadSystems);
+
+        // Alert source change handler
+        document.getElementById('alertSource').addEventListener('change', (e) => {
+            const isTemplate = e.target.value === 'template';
+            document.getElementById('templateSelect').style.display = isTemplate ? 'block' : 'none';
+            if (isTemplate) loadTemplatesForSelect();
+        });
+
+        // Site target change handler
+        document.querySelectorAll('input[name="siteTarget"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                document.getElementById('siteCheckboxes').style.display = e.target.value === 'selected' ? 'block' : 'none';
+            });
+        });
+
+        async function loadTemplatesForSelect() {
+            try {
+                const res = await fetch(`${API_BASE}/templates`, { headers });
+                const data = await res.json();
+                const select = document.getElementById('templateSelect');
+                select.innerHTML = '<option value="">Select a template...</option>' +
+                    data.templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+                select.addEventListener('change', (e) => {
+                    if (e.target.value) useTemplate(e.target.value);
+                });
+            } catch (err) {
+                console.error('Error loading templates:', err);
+            }
+        }
+
         // Load current alert
         async function loadCurrentAlert() {
             try {
@@ -453,13 +885,23 @@
             const contactPhone = document.getElementById('contact_phone').value.trim();
             const contactEmail = document.getElementById('contact_email').value.trim();
             const contactTeams = document.getElementById('contact_teams').value.trim();
-            const site = document.getElementById('site').value.trim();
 
             if (contactName) alert.alert_contact_name = contactName;
             if (contactPhone) alert.alert_contact_phone = contactPhone;
             if (contactEmail) alert.alert_contact_email = contactEmail;
             if (contactTeams) alert.alert_contact_teams = contactTeams;
-            if (site) alert.site = site;
+            
+            // Handle site selection
+            const siteTarget = document.querySelector('input[name="siteTarget"]:checked').value;
+            if (siteTarget === 'selected') {
+                const selectedSites = Array.from(document.querySelectorAll('input[name="selectedSites"]:checked'))
+                    .map(cb => cb.value);
+                if (selectedSites.length > 0) {
+                    // For now, send to first selected site (can be enhanced to send to multiple)
+                    alert.site = selectedSites[0];
+                }
+            }
+            // If "all sites", don't set site field (shows to everyone)
 
             try {
                 const res = await fetch(`${API_BASE}/alert`, {

@@ -167,7 +167,7 @@ namespace GridBanner
                     complianceStatus);
 
                 // Alert overlays (optional; configured via conf.ini)
-                SetupAlertSystem(config, bannerHeight);
+                SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel);
 
                 // Hide the main window
                 Hide();
@@ -242,7 +242,7 @@ namespace GridBanner
             LogMessage($"Successfully created {_bannerWindows.Count} banner window(s)");
         }
 
-        private void SetupAlertSystem(Dictionary<string, string> config, double alertBarHeight)
+        private void SetupAlertSystem(Dictionary<string, string> config, double alertBarHeight, string computerName, string username, string orgName, string classificationLevel)
         {
             var alertFile = config.GetValueOrDefault("alert_file_location", string.Empty).Trim();
             var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
@@ -267,7 +267,17 @@ namespace GridBanner
             CreateOrRefreshAlertWindows(alertBarHeight);
 
             var siteNames = config.GetValueOrDefault("site_name", string.Empty).Trim();
-            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames);
+            
+            // Prepare system info for reporting
+            var systemInfo = new AlertManager.SystemInfo(
+                WorkstationName: computerName,
+                Username: username,
+                Classification: classificationLevel,
+                Location: siteNames,  // Use site names as location
+                Company: orgName
+            );
+            
+            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames, systemInfo);
             _alertManager.Start();
 
             LogMessage($"Alert system enabled. file='{alertFile}', url='{alertUrl}', pollSeconds={pollSeconds}, sites='{siteNames}'");
