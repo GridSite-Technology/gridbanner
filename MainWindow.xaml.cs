@@ -18,6 +18,7 @@ namespace GridBanner
         private readonly List<SuperCriticalAlertWindow> _superCriticalWindows = new();
         private readonly AlertSoundPlayer _alertSoundPlayer = new();
         private AlertManager? _alertManager;
+        private System.Windows.Threading.DispatcherTimer? _connectivityTimer;
         private AlertMessage? _activeAlert;
         private string? _dismissedAlertSignature;
         private string? _closedSuperCriticalSignature;
@@ -287,6 +288,20 @@ namespace GridBanner
             if (!string.IsNullOrWhiteSpace(alertUrl))
             {
                 _alertSoundPlayer.SetBaseUrl(_alertManager.BaseUrl);
+                
+                // Set up connectivity tracking for banners
+                foreach (var banner in _bannerWindows)
+                {
+                    banner.AlertServerConfigured = true;
+                }
+                
+                // Start timer to update connectivity status
+                _connectivityTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(5)
+                };
+                _connectivityTimer.Tick += (_, __) => UpdateBannerConnectivity();
+                _connectivityTimer.Start();
             }
 
             LogMessage($"Alert system enabled. file='{alertFile}', url='{alertUrl}', pollSeconds={pollSeconds}, sites='{siteNames}'");
@@ -309,12 +324,42 @@ namespace GridBanner
         private void StopAlertSystem()
         {
             try { _alertManager?.Stop(); } catch { /* ignore */ }
+            try { _connectivityTimer?.Stop(); } catch { /* ignore */ }
             _activeAlert = null;
             _dismissedAlertSignature = null;
             _closedSuperCriticalSignature = null;
             _alertSoundPlayer.Stop();
             HideAllAlertWindows();
             HideAllSuperCriticalWindows();
+            
+            // Clear connectivity status
+            foreach (var banner in _bannerWindows)
+            {
+                try
+                {
+                    banner.AlertServerConfigured = false;
+                    banner.LastServerConnection = null;
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        private void UpdateBannerConnectivity()
+        {
+            if (_alertManager == null) return;
+            
+            var lastConnection = _alertManager.LastSuccessfulConnection;
+            foreach (var banner in _bannerWindows)
+            {
+                try
+                {
+                    banner.LastServerConnection = lastConnection;
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
         }
 
         private void CreateOrRefreshAlertWindows(double height)

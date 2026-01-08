@@ -41,6 +41,9 @@ namespace GridBanner
         private CancellationTokenSource? _cts;
 
         private AlertMessage? _current;
+        private DateTime? _lastSuccessfulConnection;
+        
+        public DateTime? LastSuccessfulConnection => _lastSuccessfulConnection;
 
         public record SystemInfo(
             string WorkstationName,
@@ -238,6 +241,9 @@ namespace GridBanner
                         return null;
                     }
 
+                    // Update last successful connection time
+                    _lastSuccessfulConnection = DateTime.UtcNow;
+
                     var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                     return ParseAlertJson(json);
                 }
@@ -255,6 +261,9 @@ namespace GridBanner
             {
                 return null;
             }
+
+            // Update last successful connection time
+            _lastSuccessfulConnection = DateTime.UtcNow;
 
             var getJson = await getResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             return ParseAlertJson(getJson);

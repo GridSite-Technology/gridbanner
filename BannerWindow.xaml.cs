@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
@@ -9,7 +10,7 @@ using System.Runtime.InteropServices;
 
 namespace GridBanner
 {
-    public partial class BannerWindow : Window
+    public partial class BannerWindow : Window, INotifyPropertyChanged
     {
         public string ComputerName { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
@@ -133,6 +134,85 @@ namespace GridBanner
         public Visibility ComplianceVisibility => ComplianceEnabled ? Visibility.Visible : Visibility.Collapsed;
         public string ComplianceText => ComplianceStatus == 1 ? "DEVICE COMPLIANT" : "DEVICE NOT COMPLIANT";
         public Brush ComplianceBackground => ComplianceStatus == 1 ? Brushes.ForestGreen : Brushes.Firebrick;
+
+        // Connectivity warning
+        private DateTime? _lastServerConnection;
+        private bool _alertServerConfigured = false;
+        
+        public DateTime? LastServerConnection
+        {
+            get => _lastServerConnection;
+            set
+            {
+                if (_lastServerConnection != value)
+                {
+                    _lastServerConnection = value;
+                    OnPropertyChanged(nameof(LastServerConnection));
+                    OnPropertyChanged(nameof(ConnectivityWarningVisibility));
+                    OnPropertyChanged(nameof(ConnectivityWarningTooltip));
+                }
+            }
+        }
+        
+        public bool AlertServerConfigured
+        {
+            get => _alertServerConfigured;
+            set
+            {
+                if (_alertServerConfigured != value)
+                {
+                    _alertServerConfigured = value;
+                    OnPropertyChanged(nameof(AlertServerConfigured));
+                    OnPropertyChanged(nameof(ConnectivityWarningVisibility));
+                }
+            }
+        }
+        
+        public Visibility ConnectivityWarningVisibility
+        {
+            get
+            {
+                if (!AlertServerConfigured || LastServerConnection == null)
+                {
+                    return Visibility.Collapsed;
+                }
+                
+                // Show warning if last connection was more than 30 seconds ago
+                var timeSince = DateTime.UtcNow - LastServerConnection.Value;
+                return timeSince.TotalSeconds > 30 ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+        
+        public string ConnectivityWarningTooltip
+        {
+            get
+            {
+                if (LastServerConnection == null)
+                {
+                    return "No connection to alert server";
+                }
+                
+                var timeSince = DateTime.UtcNow - LastServerConnection.Value;
+                var minutes = (int)timeSince.TotalMinutes;
+                var seconds = (int)(timeSince.TotalSeconds % 60);
+                
+                if (minutes > 0)
+                {
+                    return $"Last connected to alert server: {minutes} minute{(minutes != 1 ? "s" : "")} and {seconds} second{(seconds != 1 ? "s" : "")} ago";
+                }
+                else
+                {
+                    return $"Last connected to alert server: {seconds} second{(seconds != 1 ? "s" : "")} ago";
+                }
+            }
+        }
+        
+        public event PropertyChangedEventHandler? PropertyChanged;
+        
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
 
         private Screen? _screen;
         private bool _appBarRegistered;
