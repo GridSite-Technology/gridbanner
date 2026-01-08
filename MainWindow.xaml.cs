@@ -167,7 +167,7 @@ namespace GridBanner
                     complianceStatus);
 
                 // Alert overlays (optional; configured via conf.ini)
-                SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel);
+                SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel, backgroundColor, foregroundColor, complianceStatus);
 
                 // Hide the main window
                 Hide();
@@ -242,7 +242,7 @@ namespace GridBanner
             LogMessage($"Successfully created {_bannerWindows.Count} banner window(s)");
         }
 
-        private void SetupAlertSystem(Dictionary<string, string> config, double alertBarHeight, string computerName, string username, string orgName, string classificationLevel)
+        private void SetupAlertSystem(Dictionary<string, string> config, double alertBarHeight, string computerName, string username, string orgName, string classificationLevel, System.Windows.Media.Color backgroundColor, System.Windows.Media.Color foregroundColor, int complianceStatus)
         {
             var alertFile = config.GetValueOrDefault("alert_file_location", string.Empty).Trim();
             var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
