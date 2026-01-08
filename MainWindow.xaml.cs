@@ -282,6 +282,12 @@ namespace GridBanner
             
             _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames, systemInfo);
             _alertManager.Start();
+            
+            // Set base URL for audio downloads
+            if (!string.IsNullOrWhiteSpace(alertUrl))
+            {
+                _alertSoundPlayer.SetBaseUrl(_alertManager.BaseUrl);
+            }
 
             LogMessage($"Alert system enabled. file='{alertFile}', url='{alertUrl}', pollSeconds={pollSeconds}, sites='{siteNames}'");
         }

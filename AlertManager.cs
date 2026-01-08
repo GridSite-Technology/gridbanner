@@ -26,6 +26,7 @@ namespace GridBanner
         private TimeSpan _pollInterval = TimeSpan.FromSeconds(5);
         private HashSet<string>? _workstationSites;  // null = no filtering (backward compatible)
         private SystemInfo? _systemInfo;  // System info to send when polling
+        private string? _baseUrl;  // Base URL for downloading audio files
 
         private FileSystemWatcher? _watcher;
         private Timer? _debounceTimer;
@@ -56,6 +57,16 @@ namespace GridBanner
             _url = string.IsNullOrWhiteSpace(alertUrl) ? null : alertUrl.Trim();
             _pollInterval = pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : pollInterval;
             _systemInfo = systemInfo;
+            
+            // Extract base URL for audio file downloads
+            if (!string.IsNullOrWhiteSpace(alertUrl) && Uri.TryCreate(alertUrl, UriKind.Absolute, out var uri))
+            {
+                _baseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+            }
+            else
+            {
+                _baseUrl = null;
+            }
 
             // Parse comma-separated site names (case-insensitive)
             if (string.IsNullOrWhiteSpace(workstationSiteNames))
@@ -327,6 +338,9 @@ namespace GridBanner
             // If alert has no site, show to everyone (backward compatible)
 
             var signature = ComputeSignature(trimmed);
+            var site = payload.Site?.Trim();
+            var audioFile = payload.AudioFile?.Trim();
+            
             return new AlertMessage(
                 signature,
                 level.Value,
@@ -338,7 +352,8 @@ namespace GridBanner
                 string.IsNullOrWhiteSpace(contactPhone) ? null : contactPhone,
                 string.IsNullOrWhiteSpace(contactEmail) ? null : contactEmail,
                 string.IsNullOrWhiteSpace(contactTeams) ? null : contactTeams,
-                string.IsNullOrWhiteSpace(site) ? null : site
+                string.IsNullOrWhiteSpace(site) ? null : site,
+                string.IsNullOrWhiteSpace(audioFile) ? null : audioFile
             );
         }
 

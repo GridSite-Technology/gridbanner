@@ -21,7 +21,8 @@ namespace GridBanner
         string? ContactPhone,
         string? ContactEmail,
         string? ContactTeams,
-        string? Site
+        string? Site,
+        string? AudioFile
     );
 }
 

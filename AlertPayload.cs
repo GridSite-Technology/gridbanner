@@ -37,6 +37,10 @@ namespace GridBanner
         // Optional site filter: if set, only workstations with matching site_name will show this alert
         [JsonPropertyName("site")]
         public string? Site { get; set; }
+
+        // Optional audio file: if set, use this audio file instead of system beep
+        [JsonPropertyName("audio_file")]
+        public string? AudioFile { get; set; }
     }
 }
 
