@@ -110,6 +110,8 @@ permit_terminate = 0
 - **compliance_check_command**: Optional command to run at startup; exit code `0` is treated as compliant. If the command is missing/fails/times out, GridBanner treats the device as **NOT compliant** (default: empty)
 - **disable_triple_click_menu**: `1` to disable the triple-click menu entirely, `0` to enable it (default: `0` = enabled)
 - **permit_terminate**: `1` to allow users to terminate GridBanner from the triple-click menu, `0` to hide the Terminate button (default: `0`)
+- **disable_triple_click_menu**: `1` to disable the triple-click menu entirely, `0` to enable it (default: `0` = enabled)
+- **permit_terminate**: `1` to allow users to terminate GridBanner from the triple-click menu, `0` to hide the Terminate button (default: `0`)
 
 ## Usage
 
