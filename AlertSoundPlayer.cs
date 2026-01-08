@@ -17,6 +17,7 @@ namespace GridBanner
         private string? _currentAudioFile;
         private readonly HttpClient _httpClient;
         private readonly string _audioCacheDir;
+        private string? _baseUrl;
 
         public AlertSoundPlayer()
         {
@@ -29,6 +30,11 @@ namespace GridBanner
             _httpClient = new HttpClient();
             _audioCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GridBanner", "audio");
             Directory.CreateDirectory(_audioCacheDir);
+        }
+        
+        public void SetBaseUrl(string? baseUrl)
+        {
+            _baseUrl = baseUrl;
         }
 
         public void Update(AlertMessage? alert, bool dismissed)
@@ -218,5 +224,3 @@ namespace GridBanner
         }
     }
 }
-
-

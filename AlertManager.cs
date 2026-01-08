@@ -338,7 +338,7 @@ namespace GridBanner
             // If alert has no site, show to everyone (backward compatible)
 
             var signature = ComputeSignature(trimmed);
-            var site = payload.Site?.Trim();
+            var alertSite = payload.Site?.Trim();
             var audioFile = payload.AudioFile?.Trim();
             
             return new AlertMessage(
@@ -352,7 +352,7 @@ namespace GridBanner
                 string.IsNullOrWhiteSpace(contactPhone) ? null : contactPhone,
                 string.IsNullOrWhiteSpace(contactEmail) ? null : contactEmail,
                 string.IsNullOrWhiteSpace(contactTeams) ? null : contactTeams,
-                string.IsNullOrWhiteSpace(site) ? null : site,
+                string.IsNullOrWhiteSpace(alertSite) ? null : alertSite,
                 string.IsNullOrWhiteSpace(audioFile) ? null : audioFile
             );
         }
