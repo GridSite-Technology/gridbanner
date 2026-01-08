@@ -154,6 +154,8 @@ namespace GridBanner
                 }
 
                 var siteNames = config.GetValueOrDefault("site_name", string.Empty).Trim();
+                var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
+                var alertServerConfigured = !string.IsNullOrWhiteSpace(alertUrl);
 
                 CreateOrRefreshBanners(
                     computerName,
@@ -165,7 +167,8 @@ namespace GridBanner
                     foregroundColor,
                     bannerHeight,
                     complianceEnabled,
-                    complianceStatus);
+                    complianceStatus,
+                    alertServerConfigured);
 
                 // Alert overlays (optional; configured via conf.ini)
                 SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel, backgroundColor, foregroundColor, complianceStatus);
@@ -193,7 +196,8 @@ namespace GridBanner
             System.Windows.Media.Color foregroundColor,
             double bannerHeight,
             bool complianceEnabled,
-            int complianceStatus)
+            int complianceStatus,
+            bool alertServerConfigured = false)
         {
             CloseAllBanners();
 
@@ -228,6 +232,14 @@ namespace GridBanner
                     };
 
                     bannerWindow.SetScreen(screen);
+                    
+                    // Set connectivity tracking if alert server is configured
+                    if (alertServerConfigured)
+                    {
+                        bannerWindow.AlertServerConfigured = true;
+                        bannerWindow.LastServerConnection = null; // Will be updated by timer
+                    }
+                    
                     LogMessage($"Banner window {screenIndex} configured: Left={bannerWindow.Left}, Top={bannerWindow.Top}, Width={bannerWindow.Width}, Height={bannerWindow.Height}, Topmost={bannerWindow.Topmost}");
 
                     bannerWindow.Show();
@@ -293,7 +305,12 @@ namespace GridBanner
                 foreach (var banner in _bannerWindows)
                 {
                     banner.AlertServerConfigured = true;
+                    // Initialize with null so warning shows if we've never connected
+                    banner.LastServerConnection = null;
                 }
+                
+                // Update connectivity immediately
+                UpdateBannerConnectivity();
                 
                 // Start timer to update connectivity status
                 _connectivityTimer = new System.Windows.Threading.DispatcherTimer

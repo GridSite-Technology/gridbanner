@@ -172,9 +172,15 @@ namespace GridBanner
         {
             get
             {
-                if (!AlertServerConfigured || LastServerConnection == null)
+                if (!AlertServerConfigured)
                 {
                     return Visibility.Collapsed;
+                }
+                
+                // If we've never connected, show warning immediately
+                if (LastServerConnection == null)
+                {
+                    return Visibility.Visible;
                 }
                 
                 // Show warning if last connection was more than 30 seconds ago
@@ -189,7 +195,7 @@ namespace GridBanner
             {
                 if (LastServerConnection == null)
                 {
-                    return "No connection to alert server";
+                    return "Unable to connect to alert server";
                 }
                 
                 var timeSince = DateTime.UtcNow - LastServerConnection.Value;
