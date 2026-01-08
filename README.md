@@ -6,9 +6,10 @@ Modern replacement for NetBanner.exe - A multi-monitor banner application that d
 
 - **Multi-Monitor Support**: Automatically detects and displays banners on all connected monitors
 - **User Information Display**:
-  - Username (top left)
+  - Computer name and username (top left)
   - Classification level (center)
-  - Azure AD organization name (top right)
+  - Organization name and site location (top right)
+  - Site name display: Shows "Company - Location" format, with badge for multiple sites
 - **Device Compliance Badge (Optional)**:
   - Right-side badge showing compliant/non-compliant status with green/red background
   - Can be driven by config or an optional command
@@ -73,6 +74,12 @@ banner_height = 30
 ; Optional: override detected organization name
 org_name =
 
+; Multi-site support (optional)
+; Comma-separated list of site names (e.g., "HQ,Remote,Lab")
+; If set, displays as "Company - FirstLocation" with badge showing additional sites
+; Also used for site-based alert filtering (alerts with matching site field)
+site_name =
+
 ; Device compliance badge (right side)
 ; compliance_check_enabled: 1=show badge, 0=hide badge
 compliance_check_enabled = 1
@@ -91,6 +98,7 @@ compliance_check_command =
 - **classification_level**: Text to display in the center (default: `UNSPECIFIED CLASSIFICATION`)
 - **banner_height**: Banner height in pixels (default: `30`)
 - **org_name**: Optional override for organization name (default: auto-detected)
+- **site_name**: Optional comma-separated list of site names (e.g., `HQ,Remote,Lab`). If set, displays as "Company - FirstLocation" in the banner. For multiple sites, shows a badge (e.g., "+2") with tooltip listing additional sites. Also enables site-based alert filtering (default: empty)
 - **compliance_check_enabled**: `1` to show the badge, `0` to hide it (default: `1`)
 - **compliance_status**: `1` for compliant (green) / `0` for NOT compliant (red) (default: `0`)
 - **compliance_check_command**: Optional command to run at startup; exit code `0` is treated as compliant. If the command is missing/fails/times out, GridBanner treats the device as **NOT compliant** (default: empty)
@@ -104,6 +112,30 @@ Simply run `GridBanner.exe`. The application will:
 - Read configuration from INI files
 
 To close the application, use Task Manager (Ctrl+Shift+Esc) and end the GridBanner process.
+
+## Site Name Display
+
+When `site_name` is configured in the config file, the banner displays the organization name with the site location:
+
+- **Single site**: Shows "Company Name - Location" (e.g., "PrecisionX Technology LLC - HQ")
+- **Multiple sites**: Shows "Company Name - FirstLocation" with a small badge (e.g., "+2") indicating additional sites
+- **Hover tooltip**: Hovering over the badge shows a tooltip listing all additional sites
+- **No site configured**: Just shows the organization name (backward compatible)
+
+Example: With `site_name = HQ,Remote,Lab`, the banner shows "PrecisionX Technology LLC - HQ" with a "+2" badge. Hovering over the badge shows "Remote, Lab".
+
+## Site-Based Alert Filtering
+
+GridBanner supports site-based alert filtering for emergency notifications:
+
+- **Alerts with site field**: If an alert JSON includes a `"site"` field, the alert is only shown to workstations that have that site in their `site_name` configuration
+- **Alerts without site field**: Alerts without a `site` field are shown to all workstations (backward compatible)
+- **Workstation without site_name**: Workstations without `site_name` configured will not see site-specific alerts
+
+Example:
+- Workstation config: `site_name = HQ,Remote`
+- Alert JSON: `{"level": "urgent", "site": "HQ", ...}`
+- Result: Alert is shown (workstation has "HQ" in its site list)
 
 ## Notes
 
