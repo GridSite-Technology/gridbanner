@@ -265,17 +265,17 @@ namespace GridBanner
             var site = payload.Site?.Trim();
             var siteLower = string.IsNullOrWhiteSpace(site) ? null : site.ToLowerInvariant();
 
-            // Site filtering: if alert has a site, check if workstation is in that site
-            if (siteLower != null && _workstationSites != null)
+            // Site filtering: if alert has a site, only show to workstations that have that site
+            if (siteLower != null)
             {
-                if (!_workstationSites.Contains(siteLower))
+                // Alert has a site - only show if workstation is configured with that site
+                if (_workstationSites == null || !_workstationSites.Contains(siteLower))
                 {
-                    // Workstation is not in the alert's site - don't show this alert
+                    // Workstation has no sites configured, or doesn't include this alert's site - don't show
                     return null;
                 }
             }
             // If alert has no site, show to everyone (backward compatible)
-            // If workstation has no sites configured, show all alerts (backward compatible)
 
             var signature = ComputeSignature(trimmed);
             return new AlertMessage(
