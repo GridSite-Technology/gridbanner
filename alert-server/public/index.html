@@ -135,6 +135,22 @@
     </style>
 </head>
 <body>
+    <!-- Authentication Screen -->
+    <div id="authScreen" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f5f5f5;">
+        <div style="background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px; width: 90%;">
+            <h1 style="margin-bottom: 10px; text-align: center;">GridBanner Alert Server</h1>
+            <p style="text-align: center; color: #666; margin-bottom: 30px;">Admin authentication required</p>
+            <div class="form-group">
+                <label for="authKey">Admin Key *</label>
+                <input type="password" id="authKey" placeholder="Enter admin key" style="margin-bottom: 15px;" autofocus>
+                <button type="button" class="btn-primary" id="authBtn" style="width: 100%;">Authenticate</button>
+            </div>
+            <div class="status" id="authStatus" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <!-- Main Content (hidden until authenticated) -->
+    <div id="mainContent" style="display: none;">
     <div class="container">
         <h1>GridBanner Alert Server</h1>
         <p class="subtitle">Centralized alert management for GridBanner workstations</p>
@@ -221,6 +237,7 @@
 
         <div class="status" id="status"></div>
     </div>
+    </div>
 
     <!-- Change Admin Key Modal -->
     <div id="keyModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
@@ -241,14 +258,108 @@
     </div>
 
     <script>
-        const ADMIN_KEY = new URLSearchParams(window.location.search).get('key') || prompt('Enter admin key:');
-        if (!ADMIN_KEY) {
-            alert('Admin key required');
-            window.location.reload();
+        const API_BASE = '/api';
+        let ADMIN_KEY = null;
+        let headers = { 'Content-Type': 'application/json' };
+
+        // Authentication functions
+        function showAuthError(message) {
+            const authStatus = document.getElementById('authStatus');
+            authStatus.textContent = message;
+            authStatus.className = 'status error';
+            authStatus.style.display = 'block';
         }
 
-        const API_BASE = '/api';
-        const headers = { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY };
+        function clearAuthError() {
+            const authStatus = document.getElementById('authStatus');
+            authStatus.style.display = 'none';
+        }
+
+        async function validateAdminKey(key) {
+            if (!key || key.trim().length === 0) {
+                return { valid: false, error: 'Admin key cannot be empty' };
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/key`, {
+                    method: 'GET',
+                    headers: { 'X-Admin-Key': key.trim() }
+                });
+
+                if (res.ok) {
+                    return { valid: true };
+                } else {
+                    const err = await res.json();
+                    return { valid: false, error: err.error || 'Invalid admin key' };
+                }
+            } catch (err) {
+                return { valid: false, error: 'Failed to connect to server: ' + err.message };
+            }
+        }
+
+        function showMainContent() {
+            document.getElementById('authScreen').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+        }
+
+        function hideMainContent() {
+            document.getElementById('authScreen').style.display = 'flex';
+            document.getElementById('mainContent').style.display = 'none';
+            sessionStorage.removeItem('admin_key');
+        }
+
+        async function authenticate(key) {
+            clearAuthError();
+            
+            const result = await validateAdminKey(key);
+            if (result.valid) {
+                ADMIN_KEY = key.trim();
+                headers['X-Admin-Key'] = ADMIN_KEY;
+                sessionStorage.setItem('admin_key', ADMIN_KEY);
+                showMainContent();
+                // Load initial data
+                const alert = await loadCurrentAlert();
+                populateForm(alert);
+            } else {
+                showAuthError(result.error || 'Invalid admin key. Please try again.');
+                document.getElementById('authKey').value = '';
+                document.getElementById('authKey').focus();
+            }
+        }
+
+        // Authentication button handler
+        document.getElementById('authBtn').addEventListener('click', async () => {
+            const key = document.getElementById('authKey').value;
+            await authenticate(key);
+        });
+
+        // Allow Enter key to authenticate
+        document.getElementById('authKey').addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                const key = document.getElementById('authKey').value;
+                await authenticate(key);
+            }
+        });
+
+        // Initialize: Check for stored key, URL param, or prompt
+        (async () => {
+            // Try sessionStorage first
+            let key = sessionStorage.getItem('admin_key');
+            
+            // Then try URL parameter
+            if (!key) {
+                key = new URLSearchParams(window.location.search).get('key');
+            }
+            
+            // If we have a key, try to authenticate
+            if (key) {
+                document.getElementById('authKey').value = key;
+                await authenticate(key);
+            } else {
+                // No key found, show auth screen
+                hideMainContent();
+            }
+        })();
 
         // Color preview updates
         document.getElementById('background_color').addEventListener('input', (e) => {
@@ -258,12 +369,23 @@
             document.getElementById('fgPreview').style.background = e.target.value;
         });
 
+        // Handle authentication errors
+        function handleAuthError() {
+            hideMainContent();
+            showAuthError('Session expired. Please authenticate again.');
+            document.getElementById('authKey').focus();
+        }
+
         // Load current alert
         async function loadCurrentAlert() {
             try {
                 const res = await fetch(`${API_BASE}/alert`);
                 if (res.status === 204) {
                     document.getElementById('currentAlertContent').textContent = 'No active alert';
+                    return null;
+                }
+                if (res.status === 401) {
+                    handleAuthError();
                     return null;
                 }
                 const alert = await res.json();
@@ -335,6 +457,8 @@
                 if (res.ok) {
                     showStatus('Alert updated successfully');
                     await loadCurrentAlert();
+                } else if (res.status === 401) {
+                    handleAuthError();
                 } else {
                     const err = await res.json();
                     showStatus('Error: ' + (err.error || 'Failed to update alert'), true);
@@ -357,6 +481,8 @@
                     showStatus('Alert cleared');
                     await loadCurrentAlert();
                     document.getElementById('alertForm').reset();
+                } else if (res.status === 401) {
+                    handleAuthError();
                 } else {
                     const err = await res.json();
                     showStatus('Error: ' + (err.error || 'Failed to clear alert'), true);
@@ -368,8 +494,14 @@
 
         // Refresh
         document.getElementById('refreshBtn').addEventListener('click', async () => {
-            const alert = await loadCurrentAlert();
-            populateForm(alert);
+            try {
+                const alert = await loadCurrentAlert();
+                if (alert !== null) {
+                    populateForm(alert);
+                }
+            } catch (err) {
+                showStatus('Error refreshing: ' + err.message, true);
+            }
         });
 
         // Admin Key Management
@@ -424,13 +556,16 @@
                 });
 
                 if (res.ok) {
-                    showKeyStatus('Admin key updated successfully! Please refresh the page and use the new key.', false);
-                    setTimeout(() => {
-                        // Update the stored key and reload
-                        const url = new URL(window.location);
-                        url.searchParams.set('key', newKey);
-                        window.location.href = url.toString();
-                    }, 2000);
+                    showKeyStatus('Admin key updated successfully! Re-authenticating...', false);
+                    // Update the key and re-authenticate
+                    ADMIN_KEY = newKey;
+                    headers['X-Admin-Key'] = ADMIN_KEY;
+                    sessionStorage.setItem('admin_key', ADMIN_KEY);
+                    keyModal.style.display = 'none';
+                    showKeyStatus('', false);
+                } else if (res.status === 401) {
+                    handleAuthError();
+                    keyModal.style.display = 'none';
                 } else {
                     const err = await res.json();
                     showKeyStatus('Error: ' + (err.error || 'Failed to update admin key'), true);
