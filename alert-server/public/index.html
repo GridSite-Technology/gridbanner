@@ -1317,10 +1317,17 @@
 
         function updateSiteCheckboxes(sites) {
             const container = document.getElementById('siteCheckboxes');
+            if (!container) return;
+            
+            if (sites.length === 0) {
+                container.innerHTML = '<p style="color: #666; font-size: 14px; padding: 12px; text-align: center;">No sites available. Create sites in the Sites tab first.</p>';
+                return;
+            }
+            
             container.innerHTML = sites.map(s => `
-                <label style="display: block; font-weight: normal; margin-bottom: 8px;">
-                    <input type="checkbox" name="selectedSites" value="${s.name}" style="margin-right: 8px;">
-                    ${s.name}
+                <label style="display: flex; align-items: center; padding: 10px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">
+                    <input type="checkbox" name="selectedSites" value="${s.name}" style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;">
+                    <span style="font-size: 14px; color: #333;">${s.name}</span>
                 </label>
             `).join('');
         }
