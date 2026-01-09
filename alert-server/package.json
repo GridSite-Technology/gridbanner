@@ -1,20 +1,22 @@
 {
   "name": "gridbanner-alert-server",
   "version": "1.0.0",
-  "description": "Centralized alert management server for GridBanner",
+  "description": "Alert server for GridBanner with full API support",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
-  "keywords": ["gridbanner", "alerts", "express"],
-  "author": "GridSite Technology",
-  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "body-parser": "^1.20.2",
-    "multer": "^1.4.5-lts.1"
-  }
+    "multer": "^1.4.5-lts.1",
+    "body-parser": "^1.20.2"
+  },
+  "keywords": [
+    "gridbanner",
+    "alert",
+    "server"
+  ],
+  "author": "GridSite Technology",
+  "license": "MIT"
 }
-
 

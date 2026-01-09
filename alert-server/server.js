@@ -1,662 +1,458 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const fs = require('fs').promises;
 const path = require('path');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CONFIG_FILE = path.join(__dirname, 'config.json');
-const ALERT_FILE = process.env.ALERT_FILE || path.join(__dirname, 'alerts', 'current.json');
+
+// Middleware
+app.use(express.json());
+app.use(express.static('public'));
+
+// CORS middleware
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
+// Load configuration
+let config;
+async function loadConfig() {
+    try {
+        const configData = await fs.readFile('config.json', 'utf8');
+        config = JSON.parse(configData);
+    } catch (error) {
+        console.error('Error loading config:', error);
+        config = { admin_key: 'adminkey' };
+    }
+}
+
+// File paths
 const DATA_FILE = path.join(__dirname, 'data.json');
+const ALERT_FILE = path.join(__dirname, 'alerts', 'current.json');
 const AUDIO_DIR = path.join(__dirname, 'audio');
 
 // Ensure directories exist
-const alertsDir = path.dirname(ALERT_FILE);
-fs.mkdir(alertsDir, { recursive: true }).catch(() => {});
-fs.mkdir(AUDIO_DIR, { recursive: true }).catch(() => {});
+async function ensureDirectories() {
+    await fs.mkdir(path.dirname(ALERT_FILE), { recursive: true });
+    await fs.mkdir(AUDIO_DIR, { recursive: true });
+}
 
-// In-memory data storage
-let dataStore = {
-  systems: {},  // Key: workstation_name, Value: { last_seen, workstation_name, username, classification, location, company }
-  sites: [],   // Array of { id, name }
-  templates: [], // Array of { id, name, level, summary, message, background_color, foreground_color, site, contact fields }
-  settings: {   // Default settings
-    default_contact_name: '',
-    default_contact_phone: '',
-    default_contact_email: '',
-    default_contact_teams: ''
-  }
-};
-
-// Load data store from file
-async function loadDataStore() {
-  try {
-    const data = await fs.readFile(DATA_FILE, 'utf8');
-    dataStore = JSON.parse(data);
-    // Ensure all required fields exist
-    if (!dataStore.systems) dataStore.systems = {};
-    if (!dataStore.sites) dataStore.sites = [];
-    if (!dataStore.templates) dataStore.templates = [];
-    if (!dataStore.settings) dataStore.settings = {
-      default_contact_name: '',
-      default_contact_phone: '',
-      default_contact_email: '',
-      default_contact_teams: ''
-    };
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.error('Error loading data store:', err);
+// Load data
+async function loadData() {
+    try {
+        const data = await fs.readFile(DATA_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        // Return default structure if file doesn't exist
+        return {
+            systems: {},
+            sites: [],
+            templates: [],
+            settings: {
+                default_contact_name: '',
+                default_contact_phone: '',
+                default_contact_email: '',
+                default_contact_teams: ''
+            }
+        };
     }
-    // Use defaults
-    dataStore = { 
-      systems: {}, 
-      sites: [], 
-      templates: [],
-      settings: {
-        default_contact_name: '',
-        default_contact_phone: '',
-        default_contact_email: '',
-        default_contact_teams: ''
-      }
-    };
-  }
 }
 
-// Save data store to file
-async function saveDataStore() {
-  try {
-    await fs.writeFile(DATA_FILE, JSON.stringify(dataStore, null, 2), 'utf8');
-  } catch (err) {
-    console.error('Error saving data store:', err);
-  }
+// Save data
+async function saveData(data) {
+    await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 
-// Initialize data store on startup
-loadDataStore().catch(() => {});
-
-// Load or initialize admin key
-let ADMIN_KEY = process.env.ADMIN_KEY || 'adminkey';
-
-async function loadAdminKey() {
-  try {
-    const data = await fs.readFile(CONFIG_FILE, 'utf8');
-    const config = JSON.parse(data);
-    if (config.admin_key && config.admin_key.trim().length > 0) {
-      ADMIN_KEY = config.admin_key.trim();
-    }
-  } catch (err) {
-    // Config file doesn't exist or is invalid, use default
-    await saveAdminKey(ADMIN_KEY);
-  }
-}
-
-async function saveAdminKey(key) {
-  try {
-    const config = { admin_key: key.trim() };
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
-    ADMIN_KEY = key.trim();
-  } catch (err) {
-    console.error('Error saving admin key:', err);
-  }
-}
-
-// Initialize admin key on startup
-loadAdminKey().catch(() => {});
-
-// Simple key authentication middleware
-function requireAdminKey(req, res, next) {
-  const providedKey = req.headers['x-admin-key'] || req.query.admin_key;
-  
-  // Strict check: must be provided and must match exactly
-  if (!providedKey || typeof providedKey !== 'string' || providedKey.trim() !== ADMIN_KEY) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid admin key' });
-  }
-  
-  next();
-}
-
-// Middleware
-app.use(bodyParser.json());
-
-// API routes (must be before static middleware)
-// GET /api/alert - Get current alert (public, for GridBanner clients)
-app.get('/api/alert', async (req, res) => {
-  try {
-    const data = await fs.readFile(ALERT_FILE, 'utf8');
-    const trimmed = data.trim();
-    
-    // Empty file = no alert
-    if (trimmed.length === 0) {
-      return res.status(204).send();
-    }
-    
-    const alert = JSON.parse(trimmed);
-    res.json(alert);
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      // File doesn't exist = no alert
-      return res.status(204).send();
-    }
-    console.error('Error reading alert:', err);
-    res.status(500).json({ error: 'Failed to read alert' });
-  }
-});
-
-// POST /api/alert - Either create/update alert (admin) OR report system info (client)
-app.post('/api/alert', async (req, res) => {
-  try {
-    const providedKey = req.headers['x-admin-key'];
-    const isAdmin = providedKey && typeof providedKey === 'string' && providedKey.trim() === ADMIN_KEY;
-    
-    // Check if this is system info reporting
-    // System info has workstation_name but NO alert fields (level, summary, etc.)
-    // Admin requests have alert fields (level, summary, message, etc.)
-    const hasSystemInfo = req.body.workstation_name && 
-                          !req.body.level && 
-                          !req.body.summary && 
-                          !req.body.message;
-    const isSystemReport = !isAdmin && hasSystemInfo;
-    
-    if (isSystemReport) {
-      // Client reporting system info
-      const systemInfo = {
-        workstation_name: req.body.workstation_name || '',
-        username: req.body.username || '',
-        classification: req.body.classification || '',
-        location: req.body.location || '',
-        company: req.body.company || '',
-        background_color: req.body.background_color || '#FFA500',
-        foreground_color: req.body.foreground_color || '#FFFFFF',
-        compliance_status: req.body.compliance_status !== undefined ? req.body.compliance_status : 0
-      };
-      
-      // Update system info
-      const key = systemInfo.workstation_name || 'unknown';
-      dataStore.systems[key] = {
-        ...systemInfo,
-        last_seen: new Date().toISOString()
-      };
-      
-      // Save data store (async, don't wait)
-      saveDataStore().catch(() => {});
-      
-      console.log(`System reported: ${key} (${systemInfo.username}@${systemInfo.company})`);
-      
-      // Return current alert (if any)
-      try {
+// Load alert
+async function loadAlert() {
+    try {
         const data = await fs.readFile(ALERT_FILE, 'utf8');
-        const trimmed = data.trim();
-        if (trimmed.length === 0) {
-          return res.status(204).send();
+        const alert = JSON.parse(data);
+        // Return empty object if alert is effectively empty
+        if (!alert || Object.keys(alert).length === 0) {
+            return null;
         }
-        const alert = JSON.parse(trimmed);
-        return res.json(alert);
-      } catch (err) {
-        if (err.code === 'ENOENT') {
-          return res.status(204).send();
-        }
-        return res.status(204).send(); // On error, return no alert
-      }
+        return alert;
+    } catch (error) {
+        return null;
     }
-    
-    // Admin creating/updating alert
-    if (!isAdmin) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid admin key' });
-    }
-    
-    const alert = req.body;
-    
-    // Basic validation
-    if (!alert.level || !alert.summary || !alert.message || 
-        !alert.background_color || !alert.foreground_color) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: level, summary, message, background_color, foreground_color' 
-      });
-    }
-    
-    // Ensure alerts directory exists
-    await fs.mkdir(alertsDir, { recursive: true });
-    
-    // Write alert file
+}
+
+// Save alert
+async function saveAlert(alert) {
+    await fs.mkdir(path.dirname(ALERT_FILE), { recursive: true });
     await fs.writeFile(ALERT_FILE, JSON.stringify(alert, null, 2), 'utf8');
-    
-    res.json({ success: true, message: 'Alert updated' });
-  } catch (err) {
-    console.error('Error in POST /api/alert:', err);
-    res.status(500).json({ error: 'Failed to process request' });
-  }
-});
+}
 
-// DELETE /api/alert - Clear alert (requires admin key)
-app.delete('/api/alert', requireAdminKey, async (req, res) => {
-  try {
-    // Write empty file to clear alert
-    await fs.writeFile(ALERT_FILE, '', 'utf8');
-    res.json({ success: true, message: 'Alert cleared' });
-  } catch (err) {
-    console.error('Error clearing alert:', err);
-    res.status(500).json({ error: 'Failed to clear alert' });
-  }
-});
-
-// GET /api/alerts/list - List all alerts (admin only, for future use)
-app.get('/api/alerts/list', requireAdminKey, async (req, res) => {
-  try {
-    const data = await fs.readFile(ALERT_FILE, 'utf8');
-    const trimmed = data.trim();
-    
-    if (trimmed.length === 0) {
-      return res.json({ alert: null });
+// API key authentication middleware
+function authenticate(req, res, next) {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || apiKey !== config.admin_key) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
     }
-    
-    const alert = JSON.parse(trimmed);
-    res.json({ alert });
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return res.json({ alert: null });
+    next();
+}
+
+// Health check (no auth required)
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Alert endpoints
+app.get('/api/alert', async (req, res) => {
+    try {
+        const alert = await loadAlert();
+        if (!alert) {
+            return res.json({});
+        }
+        res.json(alert);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    console.error('Error reading alert:', err);
-    res.status(500).json({ error: 'Failed to read alert' });
-  }
 });
 
-// POST /api/admin/key - Change admin key (requires current admin key)
-app.post('/api/admin/key', requireAdminKey, async (req, res) => {
-  try {
-    const { new_key } = req.body;
-    
-    if (!new_key || typeof new_key !== 'string' || new_key.trim().length === 0) {
-      return res.status(400).json({ error: 'New admin key is required and must not be empty' });
+app.post('/api/alert', authenticate, async (req, res) => {
+    try {
+        const alert = req.body;
+        await saveAlert(alert);
+        res.json({ success: true, alert });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    if (new_key.trim().length < 4) {
-      return res.status(400).json({ error: 'Admin key must be at least 4 characters' });
+});
+
+app.delete('/api/alert', authenticate, async (req, res) => {
+    try {
+        await saveAlert({});
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    await saveAdminKey(new_key.trim());
-    res.json({ success: true, message: 'Admin key updated' });
-  } catch (err) {
-    console.error('Error updating admin key:', err);
-    res.status(500).json({ error: 'Failed to update admin key' });
-  }
 });
 
-// GET /api/admin/key - Get current admin key status (requires admin key, doesn't reveal the key)
-app.get('/api/admin/key', requireAdminKey, async (req, res) => {
-  res.json({ 
-    success: true, 
-    key_set: ADMIN_KEY.length > 0,
-    key_length: ADMIN_KEY.length 
-  });
-});
-
-// GET /api/systems - Get all systems (admin only)
-app.get('/api/systems', requireAdminKey, async (req, res) => {
-  try {
-    const systems = Object.values(dataStore.systems);
-    res.json({ systems });
-  } catch (err) {
-    console.error('Error getting systems:', err);
-    res.status(500).json({ error: 'Failed to get systems' });
-  }
-});
-
-// GET /api/sites - Get all sites (admin only)
-app.get('/api/sites', requireAdminKey, async (req, res) => {
-  try {
-    res.json({ sites: dataStore.sites });
-  } catch (err) {
-    console.error('Error getting sites:', err);
-    res.status(500).json({ error: 'Failed to get sites' });
-  }
-});
-
-// POST /api/sites - Create a site (admin only)
-app.post('/api/sites', requireAdminKey, async (req, res) => {
-  try {
-    const { name } = req.body;
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({ error: 'Site name is required' });
+// Data endpoint (get all data)
+app.get('/api/data', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    const id = Date.now().toString();
-    const site = { id, name: name.trim() };
-    dataStore.sites.push(site);
-    await saveDataStore();
-    
-    res.json({ success: true, site });
-  } catch (err) {
-    console.error('Error creating site:', err);
-    res.status(500).json({ error: 'Failed to create site' });
-  }
 });
 
-// PUT /api/sites/:id - Update a site (admin only)
-app.put('/api/sites/:id', requireAdminKey, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name } = req.body;
-    
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({ error: 'Site name is required' });
+// Template endpoints
+app.get('/api/templates', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        res.json(data.templates || []);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    const site = dataStore.sites.find(s => s.id === id);
-    if (!site) {
-      return res.status(404).json({ error: 'Site not found' });
+});
+
+app.post('/api/templates', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const template = {
+            id: Date.now().toString(),
+            ...req.body
+        };
+        if (!data.templates) {
+            data.templates = [];
+        }
+        data.templates.push(template);
+        await saveData(data);
+        res.json(template);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    site.name = name.trim();
-    await saveDataStore();
-    
-    res.json({ success: true, site });
-  } catch (err) {
-    console.error('Error updating site:', err);
-    res.status(500).json({ error: 'Failed to update site' });
-  }
 });
 
-// DELETE /api/sites/:id - Delete a site (admin only)
-app.delete('/api/sites/:id', requireAdminKey, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const index = dataStore.sites.findIndex(s => s.id === id);
-    
-    if (index === -1) {
-      return res.status(404).json({ error: 'Site not found' });
+app.put('/api/templates/:id', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const templateId = req.params.id;
+        const templateIndex = data.templates.findIndex(t => t.id === templateId);
+        
+        if (templateIndex === -1) {
+            return res.status(404).json({ error: 'Template not found' });
+        }
+        
+        data.templates[templateIndex] = {
+            ...data.templates[templateIndex],
+            ...req.body,
+            id: templateId
+        };
+        await saveData(data);
+        res.json(data.templates[templateIndex]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    dataStore.sites.splice(index, 1);
-    await saveDataStore();
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error deleting site:', err);
-    res.status(500).json({ error: 'Failed to delete site' });
-  }
 });
 
-// GET /api/templates - Get all templates (admin only)
-app.get('/api/templates', requireAdminKey, async (req, res) => {
-  try {
-    res.json({ templates: dataStore.templates });
-  } catch (err) {
-    console.error('Error getting templates:', err);
-    res.status(500).json({ error: 'Failed to get templates' });
-  }
-});
-
-// POST /api/templates - Create a template (admin only)
-app.post('/api/templates', requireAdminKey, async (req, res) => {
-  try {
-    const template = req.body;
-    
-    if (!template.name || !template.level || !template.summary || !template.message || 
-        !template.background_color || !template.foreground_color) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: name, level, summary, message, background_color, foreground_color' 
-      });
+app.delete('/api/templates/:id', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const templateId = req.params.id;
+        const templateIndex = data.templates.findIndex(t => t.id === templateId);
+        
+        if (templateIndex === -1) {
+            return res.status(404).json({ error: 'Template not found' });
+        }
+        
+        data.templates.splice(templateIndex, 1);
+        await saveData(data);
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    const id = Date.now().toString();
-    const newTemplate = {
-      id,
-      name: template.name.trim(),
-      level: template.level.trim(),
-      summary: template.summary.trim(),
-      message: template.message.trim(),
-      background_color: template.background_color.trim(),
-      foreground_color: template.foreground_color.trim(),
-      site: template.site?.trim() || null,
-      alert_contact_name: template.alert_contact_name?.trim() || null,
-      alert_contact_phone: template.alert_contact_phone?.trim() || null,
-      alert_contact_email: template.alert_contact_email?.trim() || null,
-      alert_contact_teams: template.alert_contact_teams?.trim() || null
-    };
-    
-    dataStore.templates.push(newTemplate);
-    await saveDataStore();
-    
-    res.json({ success: true, template: newTemplate });
-  } catch (err) {
-    console.error('Error creating template:', err);
-    res.status(500).json({ error: 'Failed to create template' });
-  }
 });
 
-// PUT /api/templates/:id - Update a template (admin only)
-app.put('/api/templates/:id', requireAdminKey, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const template = req.body;
-    
-    const existing = dataStore.templates.find(t => t.id === id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Template not found' });
+// Site endpoints
+app.get('/api/sites', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        res.json(data.sites || []);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    if (template.name) existing.name = template.name.trim();
-    if (template.level) existing.level = template.level.trim();
-    if (template.summary) existing.summary = template.summary.trim();
-    if (template.message) existing.message = template.message.trim();
-    if (template.background_color) existing.background_color = template.background_color.trim();
-    if (template.foreground_color) existing.foreground_color = template.foreground_color.trim();
-    if (template.site !== undefined) existing.site = template.site?.trim() || null;
-    if (template.alert_contact_name !== undefined) existing.alert_contact_name = template.alert_contact_name?.trim() || null;
-    if (template.alert_contact_phone !== undefined) existing.alert_contact_phone = template.alert_contact_phone?.trim() || null;
-    if (template.alert_contact_email !== undefined) existing.alert_contact_email = template.alert_contact_email?.trim() || null;
-    if (template.alert_contact_teams !== undefined) existing.alert_contact_teams = template.alert_contact_teams?.trim() || null;
-    
-    await saveDataStore();
-    
-    res.json({ success: true, template: existing });
-  } catch (err) {
-    console.error('Error updating template:', err);
-    res.status(500).json({ error: 'Failed to update template' });
-  }
 });
 
-// DELETE /api/templates/:id - Delete a template (admin only)
-app.delete('/api/templates/:id', requireAdminKey, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const index = dataStore.templates.findIndex(t => t.id === id);
-    
-    if (index === -1) {
-      return res.status(404).json({ error: 'Template not found' });
+app.post('/api/sites', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const site = {
+            id: Date.now().toString(),
+            name: req.body.name
+        };
+        if (!data.sites) {
+            data.sites = [];
+        }
+        data.sites.push(site);
+        await saveData(data);
+        res.json(site);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    dataStore.templates.splice(index, 1);
-    await saveDataStore();
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error deleting template:', err);
-    res.status(500).json({ error: 'Failed to delete template' });
-  }
 });
 
-// GET /api/settings - Get settings (admin only)
-app.get('/api/settings', requireAdminKey, async (req, res) => {
-  try {
-    res.json(dataStore.settings || {});
-  } catch (err) {
-    console.error('Error getting settings:', err);
-    res.status(500).json({ error: 'Failed to get settings' });
-  }
-});
-
-// POST /api/settings - Update settings (admin only)
-app.post('/api/settings', requireAdminKey, async (req, res) => {
-  try {
-    const { default_contact_name, default_contact_phone, default_contact_email, default_contact_teams } = req.body;
-    
-    if (!dataStore.settings) {
-      dataStore.settings = {};
+app.put('/api/sites/:id', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const siteId = req.params.id;
+        const siteIndex = data.sites.findIndex(s => s.id === siteId);
+        
+        if (siteIndex === -1) {
+            return res.status(404).json({ error: 'Site not found' });
+        }
+        
+        data.sites[siteIndex] = {
+            ...data.sites[siteIndex],
+            name: req.body.name,
+            id: siteId
+        };
+        await saveData(data);
+        res.json(data.sites[siteIndex]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    
-    if (default_contact_name !== undefined) dataStore.settings.default_contact_name = default_contact_name || '';
-    if (default_contact_phone !== undefined) dataStore.settings.default_contact_phone = default_contact_phone || '';
-    if (default_contact_email !== undefined) dataStore.settings.default_contact_email = default_contact_email || '';
-    if (default_contact_teams !== undefined) dataStore.settings.default_contact_teams = default_contact_teams || '';
-    
-    await saveDataStore();
-    
-    res.json({ success: true, settings: dataStore.settings });
-  } catch (err) {
-    console.error('Error updating settings:', err);
-    res.status(500).json({ error: 'Failed to update settings' });
-  }
 });
 
-// Audio file management endpoints
-const multer = require('multer');
-const upload = multer({ 
-  dest: AUDIO_DIR,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedMimes = ['audio/mpeg', 'audio/wav', 'audio/mp3', 'audio/wave', 'audio/x-wav', 'audio/mp4', 'audio/m4a'];
-    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(mp3|wav|m4a|mp4)$/i)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only audio files (mp3, wav, m4a, mp4) are allowed'));
+app.delete('/api/sites/:id', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const siteId = req.params.id;
+        const siteIndex = data.sites.findIndex(s => s.id === siteId);
+        
+        if (siteIndex === -1) {
+            return res.status(404).json({ error: 'Site not found' });
+        }
+        
+        data.sites.splice(siteIndex, 1);
+        await saveData(data);
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-  }
 });
 
-// GET /api/audio - List all audio files
-app.get('/api/audio', requireAdminKey, async (req, res) => {
-  try {
-    const files = await fs.readdir(AUDIO_DIR);
-    const audioFiles = [];
-    for (const file of files) {
-      const filePath = path.join(AUDIO_DIR, file);
-      const stats = await fs.stat(filePath);
-      if (stats.isFile() && file.match(/\.(mp3|wav|m4a|mp4)$/i)) {
-        audioFiles.push({
-          id: file,
-          name: file.replace(/\.(mp3|wav|m4a|mp4)$/i, ''),
-          filename: file,
-          size: stats.size,
-          uploaded: stats.mtime.toISOString()
+// Settings endpoints
+app.get('/api/settings', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        res.json(data.settings || {});
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/settings', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        data.settings = {
+            ...data.settings,
+            ...req.body
+        };
+        await saveData(data);
+        res.json(data.settings);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Audio file endpoints
+app.get('/api/audio', authenticate, async (req, res) => {
+    try {
+        const files = await fs.readdir(AUDIO_DIR);
+        const audioFiles = await Promise.all(
+            files
+                .filter(file => /\.(mp3|wav|ogg|m4a)$/i.test(file))
+                .map(async (file) => {
+                    const stats = await fs.stat(path.join(AUDIO_DIR, file));
+                    return {
+                        name: file,
+                        size: stats.size,
+                        modified: stats.mtime.toISOString()
+                    };
+                })
+        );
+        res.json(audioFiles);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, AUDIO_DIR);
+    },
+    filename: (req, file, cb) => {
+        const fileName = req.body.name || file.originalname;
+        cb(null, fileName);
+    }
+});
+
+const upload = multer({ storage });
+
+app.post('/api/audio', authenticate, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+        res.json({
+            success: true,
+            name: req.file.filename,
+            size: req.file.size
         });
-      }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    res.json({ audio_files: audioFiles });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
-// POST /api/audio - Upload audio file
-app.post('/api/audio', requireAdminKey, upload.single('audio'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+app.put('/api/audio/:name', authenticate, async (req, res) => {
+    try {
+        const oldName = decodeURIComponent(req.params.name);
+        const newName = req.body.name;
+        
+        if (!newName) {
+            return res.status(400).json({ error: 'New name is required' });
+        }
+        
+        const oldPath = path.join(AUDIO_DIR, oldName);
+        const newPath = path.join(AUDIO_DIR, newName);
+        
+        await fs.access(oldPath); // Check if file exists
+        await fs.rename(oldPath, newPath);
+        
+        res.json({ success: true, name: newName });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return res.status(404).json({ error: 'Audio file not found' });
+        }
+        res.status(500).json({ error: error.message });
     }
-    const originalName = req.body.name || req.file.originalname || 'audio';
-    const ext = path.extname(req.file.filename) || path.extname(req.file.originalname) || '.mp3';
-    const newName = originalName.replace(/[^a-zA-Z0-9_-]/g, '_') + ext;
-    const newPath = path.join(AUDIO_DIR, newName);
-    
-    // Rename uploaded file
-    await fs.rename(req.file.path, newPath);
-    
-    const stats = await fs.stat(newPath);
-    res.json({
-      id: newName,
-      name: originalName,
-      filename: newName,
-      size: stats.size,
-      uploaded: stats.mtime.toISOString()
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
-// PUT /api/audio/:id - Rename audio file
-app.put('/api/audio/:id', requireAdminKey, async (req, res) => {
-  try {
-    const oldId = req.params.id;
-    const newName = req.body.name;
-    if (!newName || newName.trim().length === 0) {
-      return res.status(400).json({ error: 'Name is required' });
+app.delete('/api/audio/:name', authenticate, async (req, res) => {
+    try {
+        const fileName = decodeURIComponent(req.params.name);
+        const filePath = path.join(AUDIO_DIR, fileName);
+        
+        await fs.unlink(filePath);
+        res.status(204).send();
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return res.status(404).json({ error: 'Audio file not found' });
+        }
+        res.status(500).json({ error: error.message });
     }
-    
-    const oldPath = path.join(AUDIO_DIR, oldId);
-    const ext = path.extname(oldId);
-    const safeName = newName.replace(/[^a-zA-Z0-9_-]/g, '_') + ext;
-    const newPath = path.join(AUDIO_DIR, safeName);
-    
-    await fs.rename(oldPath, newPath);
-    res.json({ id: safeName, name: newName, filename: safeName });
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      res.status(404).json({ error: 'Audio file not found' });
-    } else {
-      res.status(500).json({ error: err.message });
-    }
-  }
 });
 
-// DELETE /api/audio/:id - Delete audio file
-app.delete('/api/audio/:id', requireAdminKey, async (req, res) => {
-  try {
-    const filePath = path.join(AUDIO_DIR, req.params.id);
-    await fs.unlink(filePath);
-    res.json({ success: true });
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      res.status(404).json({ error: 'Audio file not found' });
-    } else {
-      res.status(500).json({ error: err.message });
+// Serve audio files
+app.get('/api/audio/:name', async (req, res) => {
+    try {
+        const fileName = decodeURIComponent(req.params.name);
+        const filePath = path.join(AUDIO_DIR, fileName);
+        
+        // Security: ensure file is in audio directory
+        const resolvedPath = path.resolve(filePath);
+        const resolvedDir = path.resolve(AUDIO_DIR);
+        if (!resolvedPath.startsWith(resolvedDir)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        res.sendFile(filePath);
+    } catch (error) {
+        res.status(404).json({ error: 'Audio file not found' });
     }
-  }
 });
 
-// GET /api/audio/:id/download - Download audio file (no auth required for clients)
-app.get('/api/audio/:id/download', (req, res) => {
-  const filePath = path.join(AUDIO_DIR, req.params.id);
-  res.download(filePath, (err) => {
-    if (err && !res.headersSent) {
-      res.status(404).json({ error: 'Audio file not found' });
+// System registration endpoint (for GridBanner clients)
+app.post('/api/systems', async (req, res) => {
+    try {
+        const systemInfo = req.body;
+        const workstationName = systemInfo.workstation_name;
+        
+        if (!workstationName) {
+            return res.status(400).json({ error: 'workstation_name is required' });
+        }
+        
+        const data = await loadData();
+        if (!data.systems) {
+            data.systems = {};
+        }
+        
+        data.systems[workstationName] = {
+            ...systemInfo,
+            last_seen: new Date().toISOString()
+        };
+        
+        await saveData(data);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-  });
 });
-
-// Static files (must be after API routes)
-app.use(express.static('public'));
 
 // Start server
-app.listen(PORT, async () => {
-  // Ensure admin key and data store are loaded
-  await loadAdminKey();
-  await loadDataStore();
-  
-  console.log(`GridBanner Alert Server running on http://localhost:${PORT}`);
-  console.log(`Admin key: ${ADMIN_KEY}`);
-  console.log(`Config file: ${CONFIG_FILE}`);
-  console.log(`Alert file: ${ALERT_FILE}`);
-  console.log(`Data file: ${DATA_FILE}`);
-  console.log(`Systems tracked: ${Object.keys(dataStore.systems).length}`);
-  console.log(`Sites: ${dataStore.sites.length}`);
-  console.log(`Templates: ${dataStore.templates.length}`);
-  console.log('\nAPI Endpoints:');
-  console.log(`  GET  /api/alert          - Get current alert (public)`);
-  console.log(`  POST /api/alert          - Create/update alert (admin) OR report system info (client)`);
-  console.log(`  DELETE /api/alert        - Clear alert (admin)`);
-  console.log(`  GET  /api/systems        - Get all systems (admin)`);
-  console.log(`  GET  /api/sites          - Get all sites (admin)`);
-  console.log(`  POST /api/sites          - Create site (admin)`);
-  console.log(`  PUT  /api/sites/:id      - Update site (admin)`);
-  console.log(`  DELETE /api/sites/:id    - Delete site (admin)`);
-  console.log(`  GET  /api/templates      - Get all templates (admin)`);
-  console.log(`  POST /api/templates      - Create template (admin)`);
-  console.log(`  PUT  /api/templates/:id  - Update template (admin)`);
-  console.log(`  DELETE /api/templates/:id - Delete template (admin)`);
-  console.log(`  POST /api/admin/key     - Change admin key (admin)`);
-  console.log(`  GET  /api/admin/key      - Get admin key status (admin)`);
-  console.log(`  GET  /                   - Admin web interface`);
-});
+async function startServer() {
+    await loadConfig();
+    await ensureDirectories();
+    
+    app.listen(PORT, () => {
+        console.log(`GridBanner Alert Server running on port ${PORT}`);
+        console.log(`Admin API Key: ${config.admin_key}`);
+        console.log(`Health check: http://localhost:${PORT}/api/health`);
+    });
+}
+
+startServer().catch(console.error);
 
