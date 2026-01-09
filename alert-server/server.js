@@ -4,7 +4,7 @@ const path = require('path');
 const multer = require('multer');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001; // Changed default to 3001 to avoid conflicts
 
 // Middleware
 app.use(express.json());
@@ -447,10 +447,24 @@ async function startServer() {
     await loadConfig();
     await ensureDirectories();
     
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         console.log(`GridBanner Alert Server running on port ${PORT}`);
         console.log(`Admin API Key: ${config.admin_key}`);
         console.log(`Health check: http://localhost:${PORT}/api/health`);
+    });
+    
+    server.on('error', (error) => {
+        if (error.code === 'EADDRINUSE') {
+            console.error(`\nError: Port ${PORT} is already in use.`);
+            console.error(`Please either:`);
+            console.error(`  1. Stop the process using port ${PORT}`);
+            console.error(`  2. Set PORT environment variable to use a different port (e.g., set PORT=3001)`);
+            console.error(`\nTo find what's using port ${PORT}, run:`);
+            console.error(`  netstat -ano | findstr :${PORT}`);
+            process.exit(1);
+        } else {
+            throw error;
+        }
     });
 }
 
