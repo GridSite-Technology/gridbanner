@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "packageName": "com.gridsite.gridbanner",
+  "developer": {
+    "name": "GridSite Technology",
+    "websiteUrl": "https://github.com/GridSite-Technology/gridbanner",
+    "privacyUrl": "https://github.com/GridSite-Technology/gridbanner",
+    "termsOfUseUrl": "https://github.com/GridSite-Technology/gridbanner"
+  },
+  "icons": {
+    "color": "icon-color.png",
+    "outline": "icon-outline.png"
+  },
+  "name": {
+    "short": "GridBanner Alerts",
+    "full": "GridBanner Alert Management"
+  },
+  "description": {
+    "short": "Manage GridBanner alerts directly from Teams",
+    "full": "Manage alerts, templates, sites, systems, and audio files for GridBanner directly from Microsoft Teams. Configure your alert server URL and API key to get started."
+  },
+  "accentColor": "#00ADEE",
+  "staticTabs": [
+    {
+      "entityId": "gridbanner-alerts",
+      "name": "Alerts",
+      "contentUrl": "https://YOUR_DOMAIN.com/teams-app/index.html",
+      "websiteUrl": "https://YOUR_DOMAIN.com/teams-app/index.html",
+      "scopes": ["personal", "team"]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "YOUR_DOMAIN.com"
+  ]
+}
+
