@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GridBanner Alert Management</title>
+    <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f3f2f1;
+            color: #323130;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            color: #00ADEE;
+            margin-bottom: 10px;
+        }
+
+        .config-section {
+            background: white;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .config-section h2 {
+            margin-bottom: 15px;
+            color: #323130;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #323130;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #8a8886;
+            border-radius: 2px;
+            font-size: 14px;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #00ADEE;
+            box-shadow: 0 0 0 1px #00ADEE;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .btn-primary {
+            background: #00ADEE;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0099cc;
+        }
+
+        .btn-secondary {
+            background: #8a8886;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #6b6967;
+        }
+
+        .btn-danger {
+            background: #d13438;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #a4262c;
+        }
+
+        .btn-success {
+            background: #107c10;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #0e6b0e;
+        }
+
+        .tabs {
+            display: flex;
+            background: white;
+            border-radius: 4px 4px 0 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 0;
+        }
+
+        .tab {
+            padding: 15px 25px;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: #605e5c;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            background: #f3f2f1;
+        }
+
+        .tab.active {
+            color: #00ADEE;
+            border-bottom-color: #00ADEE;
+        }
+
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 0 0 4px 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-connected {
+            background: #dff6dd;
+            color: #107c10;
+        }
+
+        .status-disconnected {
+            background: #fed9cc;
+            color: #d13438;
+        }
+
+        .alert-item, .template-item, .site-item, .system-item {
+            background: #faf9f8;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #00ADEE;
+        }
+
+        .alert-item.critical {
+            border-left-color: #d13438;
+        }
+
+        .alert-item.urgent {
+            border-left-color: #ff8c00;
+        }
+
+        .alert-item.routine {
+            border-left-color: #107c10;
+        }
+
+        .item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .item-title {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .item-details {
+            color: #605e5c;
+            font-size: 14px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 4px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            color: #323130;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #605e5c;
+        }
+
+        .close-btn:hover {
+            color: #323130;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #605e5c;
+        }
+
+        .error {
+            background: #fed9cc;
+            color: #d13438;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .success {
+            background: #dff6dd;
+            color: #107c10;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #605e5c;
+        }
+
+        select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #8a8886;
+            border-radius: 2px;
+            font-size: 14px;
+            background: white;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #8a8886;
+            border-radius: 2px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        .audio-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #faf9f8;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .audio-name {
+            font-weight: 600;
+        }
+
+        .audio-actions {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>GridBanner Alert Management</h1>
+            <div id="connectionStatus" class="status-badge status-disconnected">Not Connected</div>
+        </div>
+
+        <div id="configSection" class="config-section">
+            <h2>Configuration</h2>
+            <div class="form-group">
+                <label for="serverUrl">Alert Server URL</label>
+                <input type="text" id="serverUrl" placeholder="http://your-server:3000">
+            </div>
+            <div class="form-group">
+                <label for="apiKey">API Key</label>
+                <input type="password" id="apiKey" placeholder="Enter your admin API key">
+            </div>
+            <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+            <button class="btn btn-secondary" onclick="testConnection()">Test Connection</button>
+        </div>
+
+        <div id="mainContent" style="display: none;">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('alerts')">Active Alerts</button>
+                <button class="tab" onclick="switchTab('templates')">Templates</button>
+                <button class="tab" onclick="switchTab('sites')">Sites</button>
+                <button class="tab" onclick="switchTab('systems')">Systems</button>
+                <button class="tab" onclick="switchTab('audio')">Audio Files</button>
+                <button class="tab" onclick="switchTab('settings')">Settings</button>
+            </div>
+
+            <div id="alertsTab" class="tab-content active">
+                <div style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="showNewAlertModal()">Create New Alert</button>
+                </div>
+                <div id="alertsList"></div>
+            </div>
+
+            <div id="templatesTab" class="tab-content">
+                <div style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="showNewTemplateModal()">Create New Template</button>
+                </div>
+                <div id="templatesList"></div>
+            </div>
+
+            <div id="sitesTab" class="tab-content">
+                <div style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="showNewSiteModal()">Add New Site</button>
+                </div>
+                <div id="sitesList"></div>
+            </div>
+
+            <div id="systemsTab" class="tab-content">
+                <div id="systemsList"></div>
+            </div>
+
+            <div id="audioTab" class="tab-content">
+                <div style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="showUploadAudioModal()">Upload Audio File</button>
+                </div>
+                <div id="audioList"></div>
+            </div>
+
+            <div id="settingsTab" class="tab-content">
+                <h2>Default Contact Information</h2>
+                <div class="form-group">
+                    <label for="defaultContactName">Contact Name</label>
+                    <input type="text" id="defaultContactName">
+                </div>
+                <div class="form-group">
+                    <label for="defaultContactPhone">Phone</label>
+                    <input type="text" id="defaultContactPhone">
+                </div>
+                <div class="form-group">
+                    <label for="defaultContactEmail">Email</label>
+                    <input type="email" id="defaultContactEmail">
+                </div>
+                <div class="form-group">
+                    <label for="defaultContactTeams">Teams</label>
+                    <input type="text" id="defaultContactTeams" placeholder="Email or Teams deep link">
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals will be inserted here via JavaScript -->
+    <div id="modalContainer"></div>
+
+    <script src="teams-app.js"></script>
+</body>
+</html>
+

@@ -1,12 +1,24 @@
 // Microsoft Teams SDK initialization
 let teamsContext = null;
 
-microsoftTeams.app.initialize().then(() => {
-    microsoftTeams.app.getContext().then(context => {
-        teamsContext = context;
+// Check if we're in Teams context
+if (typeof microsoftTeams !== 'undefined') {
+    microsoftTeams.app.initialize().then(() => {
+        microsoftTeams.app.getContext().then(context => {
+            teamsContext = context;
+            loadConfig();
+        }).catch(() => {
+            // Not in Teams, load config anyway
+            loadConfig();
+        });
+    }).catch(() => {
+        // Not in Teams, load config anyway
         loadConfig();
     });
-});
+} else {
+    // Not in Teams context, load config anyway
+    loadConfig();
+}
 
 // Configuration
 let config = {

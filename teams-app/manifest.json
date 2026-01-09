@@ -27,8 +27,8 @@
     {
       "entityId": "gridbanner-alerts",
       "name": "Alerts",
-      "contentUrl": "http://localhost:3000/index.html",
-      "websiteUrl": "http://localhost:3000/index.html",
+      "contentUrl": "http://localhost:3000/teams-app.html",
+      "websiteUrl": "http://localhost:3000/teams-app.html",
       "scopes": ["personal", "team"]
     }
   ],
