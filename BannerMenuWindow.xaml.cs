@@ -7,7 +7,21 @@ namespace GridBanner
 {
     public partial class BannerMenuWindow : Window
     {
-        public bool PermitTerminate { get; set; } = false;
+        private bool _permitTerminate = false;
+        
+        public bool PermitTerminate
+        {
+            get => _permitTerminate;
+            set
+            {
+                _permitTerminate = value;
+                // Update visibility immediately if button exists
+                if (TerminateButton != null)
+                {
+                    TerminateButton.Visibility = _permitTerminate ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+        }
 
         public BannerMenuWindow()
         {
@@ -17,7 +31,7 @@ namespace GridBanner
         protected override void OnContentRendered(EventArgs e)
         {
             base.OnContentRendered(e);
-            // Set visibility after property is set (constructor runs before property assignment)
+            // Ensure visibility is set correctly after rendering
             TerminateButton.Visibility = PermitTerminate ? Visibility.Visible : Visibility.Collapsed;
         }
 

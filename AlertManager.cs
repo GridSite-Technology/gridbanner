@@ -33,7 +33,7 @@ namespace GridBanner
         private FileSystemWatcher? _watcher;
         private Timer? _debounceTimer;
         private Timer? _urlTimer;
-        private readonly HttpClient _httpClient = new();
+        private HttpClient? _httpClient;
 
         private CancellationTokenSource? _cts;
 
@@ -60,10 +60,17 @@ namespace GridBanner
             _pollInterval = pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : pollInterval;
             _systemInfo = systemInfo;
             
+            // Dispose existing HttpClient and create a new one with the correct timeout
+            // This is necessary because HttpClient.Timeout cannot be changed after the first request
+            try { _httpClient?.Dispose(); } catch { /* ignore */ }
+            
             // Set HTTP timeout to 80% of poll interval, but cap at 0.5 seconds minimum and 2 seconds maximum
             // This ensures we detect failures quickly without being too aggressive
             var timeoutSeconds = Math.Max(0.5, Math.Min(_pollInterval.TotalSeconds * 0.8, 2.0));
-            _httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            _httpClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(timeoutSeconds)
+            };
             
             // Extract base URL for audio file downloads
             if (!string.IsNullOrWhiteSpace(alertUrl) && Uri.TryCreate(alertUrl, UriKind.Absolute, out var uri))
@@ -236,6 +243,7 @@ namespace GridBanner
 
                     using var req = new HttpRequestMessage(HttpMethod.Post, url);
                     req.Content = new StringContent(systemInfoJson, Encoding.UTF8, "application/json");
+                    if (_httpClient == null) return null;
                     using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
 
                     if (!resp.IsSuccessStatusCode)
@@ -260,6 +268,7 @@ namespace GridBanner
             // Fallback to GET for backward compatibility or if no system info
             try
             {
+                if (_httpClient == null) return null;
                 using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
                 using var getResp = await _httpClient.SendAsync(getReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
 
@@ -396,7 +405,7 @@ namespace GridBanner
         public void Dispose()
         {
             Stop();
-            _httpClient.Dispose();
+            try { _httpClient?.Dispose(); } catch { /* ignore */ }
         }
     }
 }
