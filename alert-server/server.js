@@ -4,7 +4,7 @@ const path = require('path');
 const multer = require('multer');
 
 const app = express();
-const PORT = process.env.PORT || 3001; // Changed default to 3001 to avoid conflicts
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
