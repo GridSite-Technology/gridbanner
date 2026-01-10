@@ -2,32 +2,42 @@
 let teamsContext = null;
 let isTeamsContext = false;
 
+// Show a message on screen for debugging
+function showDebugMessage(message, isError = false) {
+    console.log(message);
+    const statusEl = document.getElementById('connectionStatus');
+    if (statusEl) {
+        statusEl.textContent = message;
+        statusEl.className = isError ? 'status-badge status-disconnected' : 'status-badge status-connected';
+    }
+}
+
 // Initialize the app
 async function initApp() {
-    console.log('GridBanner Teams App initializing...');
+    showDebugMessage('Initializing...');
     
     // Try to initialize Teams SDK
     if (typeof microsoftTeams !== 'undefined') {
         try {
-            console.log('Teams SDK found, initializing...');
+            showDebugMessage('Loading Teams SDK...');
             await microsoftTeams.app.initialize();
-            console.log('Teams SDK initialized successfully');
+            showDebugMessage('Teams SDK ready');
             
             try {
                 teamsContext = await microsoftTeams.app.getContext();
                 isTeamsContext = true;
-                console.log('Teams context:', teamsContext);
+                showDebugMessage('Connected to Teams');
                 
                 // Notify Teams that the app is ready
                 microsoftTeams.app.notifySuccess();
             } catch (contextError) {
-                console.log('Could not get Teams context:', contextError);
+                showDebugMessage('Standalone mode');
             }
         } catch (initError) {
-            console.log('Teams SDK init failed (probably not in Teams):', initError);
+            showDebugMessage('SDK init: ' + (initError.message || 'failed'));
         }
     } else {
-        console.log('Teams SDK not found, running in standalone mode');
+        showDebugMessage('Standalone mode');
     }
     
     // Load config regardless of Teams context
@@ -38,7 +48,8 @@ async function initApp() {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
-    initApp();
+    // Small delay to ensure DOM is fully ready
+    setTimeout(initApp, 100);
 }
 
 // Configuration

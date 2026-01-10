@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://res.cdn.office.net https://statics.teams.cdn.office.net; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* https://*;">
     <title>GridBanner Alert Management</title>
-    <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
+    <script src="https://res.cdn.office.net/teams-js/2.21.0/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
     <style>
         * {
             margin: 0;
@@ -17,11 +18,12 @@
             background: #f3f2f1;
             color: #323130;
             padding: 20px;
+            min-height: 100vh;
         }
 
         .container {
             max-width: 1200px;
-            margin: 0 auto;
+            margin: 0;
         }
 
         .header {
@@ -434,7 +436,27 @@
     <!-- Modals will be inserted here via JavaScript -->
     <div id="modalContainer"></div>
 
-    <script src="teams-app.js"></script>
+    <script>
+        // Inline initialization to ensure it runs even if external script has issues
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            var statusEl = document.getElementById('connectionStatus');
+            if (statusEl) {
+                statusEl.textContent = 'Error: ' + msg;
+                statusEl.className = 'status-badge status-disconnected';
+            }
+            console.error('Global error:', msg, url, lineNo);
+            return false;
+        };
+        
+        // Show loading state immediately
+        document.addEventListener('DOMContentLoaded', function() {
+            var statusEl = document.getElementById('connectionStatus');
+            if (statusEl) {
+                statusEl.textContent = 'Loading...';
+            }
+        });
+    </script>
+    <script src="teams-app.js" onerror="document.getElementById('connectionStatus').textContent='Failed to load app script'"></script>
 </body>
 </html>
 

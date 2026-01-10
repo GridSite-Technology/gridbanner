@@ -20,6 +20,8 @@ async function handleLogin(event) {
         // Hide login, show main interface
         document.getElementById('loginContainer').style.display = 'none';
         document.getElementById('mainContainer').style.display = 'block';
+        document.body.classList.remove('login-mode');
+        document.body.classList.add('main-mode');
         
         // Load all data
         loadAllData();
@@ -54,6 +56,8 @@ async function apiCall(endpoint, method = 'GET', body = null) {
             // Unauthorized - redirect to login
             document.getElementById('loginContainer').style.display = 'block';
             document.getElementById('mainContainer').style.display = 'none';
+            document.body.classList.remove('main-mode');
+            document.body.classList.add('login-mode');
             apiKey = '';
             throw new Error('Session expired. Please login again.');
         }
