@@ -349,9 +349,12 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
             <h1>GridBanner Alert Management</h1>
-            <div id="connectionStatus" class="status-badge status-disconnected">Not Connected</div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div id="connectionStatus" class="status-badge status-disconnected">Not Connected</div>
+                <button id="disconnectBtn" class="btn btn-secondary" onclick="disconnect()" style="display: none;">Disconnect</button>
+            </div>
         </div>
 
         <div id="configSection" class="config-section">

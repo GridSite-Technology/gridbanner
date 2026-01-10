@@ -123,12 +123,29 @@ async function testConnection() {
     try {
         await apiCall('/api/health');
         updateConnectionStatus(true);
+        // Hide config section and show main content
+        document.getElementById('configSection').style.display = 'none';
         document.getElementById('mainContent').style.display = 'block';
+        document.getElementById('disconnectBtn').style.display = 'inline-block';
         loadAllData();
     } catch (error) {
         updateConnectionStatus(false);
         showMessage(`Connection failed: ${error.message}`, 'error');
     }
+}
+
+function disconnect() {
+    // Clear config and show config section
+    config.serverUrl = '';
+    config.apiKey = '';
+    localStorage.removeItem('gridbanner-config');
+    
+    document.getElementById('serverUrl').value = '';
+    document.getElementById('apiKey').value = '';
+    document.getElementById('configSection').style.display = 'block';
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('disconnectBtn').style.display = 'none';
+    updateConnectionStatus(false);
 }
 
 function updateConnectionStatus(connected) {
@@ -215,17 +232,16 @@ async function loadAlerts() {
 }
 
 async function clearAlert() {
-    if (!confirm('Are you sure you want to clear the active alert?')) {
-        return;
-    }
-
-    try {
-        await apiCall('/api/alert', 'DELETE');
-        showMessage('Alert cleared successfully', 'success');
-        loadAlerts();
-    } catch (error) {
-        showMessage(`Error clearing alert: ${error.message}`, 'error');
-    }
+    // Use custom confirm since native confirm() may not work in Teams
+    showConfirmModal('Clear Alert', 'Are you sure you want to clear the active alert?', async () => {
+        try {
+            await apiCall('/api/alert', 'DELETE');
+            showMessage('Alert cleared successfully', 'success');
+            loadAlerts();
+        } catch (error) {
+            showMessage(`Error clearing alert: ${error.message}`, 'error');
+        }
+    });
 }
 
 function showNewAlertModal() {
@@ -567,17 +583,15 @@ async function editTemplate(templateId) {
 }
 
 async function deleteTemplate(templateId) {
-    if (!confirm('Are you sure you want to delete this template?')) {
-        return;
-    }
-
-    try {
-        await apiCall(`/api/templates/${templateId}`, 'DELETE');
-        showMessage('Template deleted successfully', 'success');
-        loadTemplates();
-    } catch (error) {
-        showMessage(`Error deleting template: ${error.message}`, 'error');
-    }
+    showConfirmModal('Delete Template', 'Are you sure you want to delete this template?', async () => {
+        try {
+            await apiCall(`/api/templates/${templateId}`, 'DELETE');
+            showMessage('Template deleted successfully', 'success');
+            loadTemplates();
+        } catch (error) {
+            showMessage(`Error deleting template: ${error.message}`, 'error');
+        }
+    });
 }
 
 // Site Management
@@ -669,17 +683,15 @@ async function editSite(siteId) {
 }
 
 async function deleteSite(siteId) {
-    if (!confirm('Are you sure you want to delete this site?')) {
-        return;
-    }
-
-    try {
-        await apiCall(`/api/sites/${siteId}`, 'DELETE');
-        showMessage('Site deleted successfully', 'success');
-        loadSites();
-    } catch (error) {
-        showMessage(`Error deleting site: ${error.message}`, 'error');
-    }
+    showConfirmModal('Delete Site', 'Are you sure you want to delete this site?', async () => {
+        try {
+            await apiCall(`/api/sites/${siteId}`, 'DELETE');
+            showMessage('Site deleted successfully', 'success');
+            loadSites();
+        } catch (error) {
+            showMessage(`Error deleting site: ${error.message}`, 'error');
+        }
+    });
 }
 
 // System Management
@@ -814,17 +826,15 @@ async function renameAudio(oldName) {
 }
 
 async function deleteAudio(fileName) {
-    if (!confirm(`Are you sure you want to delete "${fileName}"?`)) {
-        return;
-    }
-
-    try {
-        await apiCall(`/api/audio/${encodeURIComponent(fileName)}`, 'DELETE');
-        showMessage('Audio file deleted successfully', 'success');
-        loadAudioFiles();
-    } catch (error) {
-        showMessage(`Error deleting audio: ${error.message}`, 'error');
-    }
+    showConfirmModal('Delete Audio', `Are you sure you want to delete "${fileName}"?`, async () => {
+        try {
+            await apiCall(`/api/audio/${encodeURIComponent(fileName)}`, 'DELETE');
+            showMessage('Audio file deleted successfully', 'success');
+            loadAudioFiles();
+        } catch (error) {
+            showMessage(`Error deleting audio: ${error.message}`, 'error');
+        }
+    });
 }
 
 // Settings Management
@@ -955,6 +965,21 @@ function createModal(title, content) {
     container.appendChild(modal);
     
     return modal;
+}
+
+function showConfirmModal(title, message, onConfirm) {
+    const modal = createModal(title, `
+        <p style="margin-bottom: 20px;">${message}</p>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-danger" id="confirmBtn">Confirm</button>
+        </div>
+    `);
+    
+    document.getElementById('confirmBtn').onclick = async () => {
+        closeModal();
+        await onConfirm();
+    };
 }
 
 function closeModal() {
