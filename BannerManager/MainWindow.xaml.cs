@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -307,7 +306,7 @@ namespace BannerManager
             }
         }
 
-        private async void Trigger_Click(object sender, RoutedEventArgs e)
+        private void Trigger_Click(object sender, RoutedEventArgs e)
         {
             if (_selected == null)
             {
@@ -324,33 +323,6 @@ namespace BannerManager
                 return;
             }
 
-            // Check if server mode is configured
-            var serverUrl = ServerUrlBox.Text.Trim();
-            var adminKey = AdminKeyBox.Text.Trim();
-
-            if (!string.IsNullOrWhiteSpace(serverUrl) && !string.IsNullOrWhiteSpace(adminKey))
-            {
-                // Use server API
-                try
-                {
-                    var success = await AlertServerService.UpdateAlertAsync(serverUrl, adminKey, _selected);
-                    if (success)
-                    {
-                        MessageBox.Show($"Alert updated on server:\n{serverUrl}", "BannerManager", MessageBoxButton.OK, MessageBoxImage.Information);
-                    }
-                    else
-                    {
-                        MessageBox.Show($"Failed to update alert on server:\n{serverUrl}\n\nCheck server URL and admin key.", "BannerManager", MessageBoxButton.OK, MessageBoxImage.Error);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error updating server: {ex.Message}", "BannerManager", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-                return;
-            }
-
-            // Fallback to local file
             var path = AlertPathBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -369,35 +341,8 @@ namespace BannerManager
             }
         }
 
-        private async void Clear_Click(object sender, RoutedEventArgs e)
+        private void Clear_Click(object sender, RoutedEventArgs e)
         {
-            // Check if server mode is configured
-            var serverUrl = ServerUrlBox.Text.Trim();
-            var adminKey = AdminKeyBox.Text.Trim();
-
-            if (!string.IsNullOrWhiteSpace(serverUrl) && !string.IsNullOrWhiteSpace(adminKey))
-            {
-                // Use server API
-                try
-                {
-                    var success = await AlertServerService.ClearAlertAsync(serverUrl, adminKey);
-                    if (success)
-                    {
-                        MessageBox.Show($"Alert cleared on server:\n{serverUrl}", "BannerManager", MessageBoxButton.OK, MessageBoxImage.Information);
-                    }
-                    else
-                    {
-                        MessageBox.Show($"Failed to clear alert on server:\n{serverUrl}\n\nCheck server URL and admin key.", "BannerManager", MessageBoxButton.OK, MessageBoxImage.Error);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error clearing server: {ex.Message}", "BannerManager", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-                return;
-            }
-
-            // Fallback to local file
             var path = AlertPathBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(path))
             {

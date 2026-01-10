@@ -106,19 +106,7 @@
 
                 <Separator Margin="0,16,0,12"/>
 
-                <TextBlock Text="Alert Server (optional)" FontWeight="Bold"/>
-                <StackPanel Margin="0,8,0,0">
-                    <TextBlock Text="Server URL" Margin="0,0,0,4" Foreground="#666" FontSize="11"/>
-                    <TextBox x:Name="ServerUrlBox" Margin="0,0,0,8" Text="http://localhost:3000"/>
-                    <TextBlock Text="Admin Key" Margin="0,0,0,4" Foreground="#666" FontSize="11"/>
-                    <TextBox x:Name="AdminKeyBox" Margin="0,0,0,8"/>
-                    <TextBlock Text="If server URL is set, Trigger/Clear will use the server API instead of local file."
-                               Margin="0,0,0,12" Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
-                </StackPanel>
-
-                <Separator Margin="0,0,0,12"/>
-
-                <TextBlock Text="Alert Target File (fallback if no server)" FontWeight="Bold"/>
+                <TextBlock Text="Alert Target File" FontWeight="Bold"/>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBox x:Name="AlertPathBox" Width="520"/>
                     <Button Content="Browse…" Margin="8,0,0,0" Click="BrowseAlertFile_Click"/>
@@ -128,7 +116,7 @@
 
                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                     <Button Content="Trigger Alert" Width="140" Click="Trigger_Click" Margin="0,0,8,0"/>
-                    <Button Content="Clear Alert" Width="140" Click="Clear_Click"/>
+                    <Button Content="Clear Alert File" Width="140" Click="Clear_Click"/>
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
