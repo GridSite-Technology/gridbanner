@@ -224,51 +224,18 @@ namespace GridBanner
 
         private async Task<AlertMessage?> TryLoadFromUrlAsync(string url, CancellationToken ct)
         {
-            // Send system info if available
-            if (_systemInfo != null)
+            if (_httpClient == null) return null;
+
+            // Send system info to the systems endpoint (separate from alert endpoint)
+            // This runs in parallel with alert fetching and doesn't block it
+            if (_systemInfo != null && _baseUrl != null)
             {
-                try
-                {
-                    var systemInfoJson = JsonSerializer.Serialize(new
-                    {
-                        workstation_name = _systemInfo.WorkstationName,
-                        username = _systemInfo.Username,
-                        classification = _systemInfo.Classification,
-                        location = _systemInfo.Location,
-                        company = _systemInfo.Company,
-                        background_color = _systemInfo.BackgroundColor,
-                        foreground_color = _systemInfo.ForegroundColor,
-                        compliance_status = _systemInfo.ComplianceStatus
-                    }, _jsonOptions);
-
-                    using var req = new HttpRequestMessage(HttpMethod.Post, url);
-                    req.Content = new StringContent(systemInfoJson, Encoding.UTF8, "application/json");
-                    if (_httpClient == null) return null;
-                    using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-
-                    if (!resp.IsSuccessStatusCode)
-                    {
-                        // Connection failed - don't update last successful connection
-                        return null;
-                    }
-
-                    // Update last successful connection time
-                    _lastSuccessfulConnection = DateTime.UtcNow;
-
-                    var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                    return ParseAlertJson(json);
-                }
-                catch
-                {
-                    // Connection failed - don't update last successful connection
-                    // Fall back to GET if POST fails (backward compatibility)
-                }
+                _ = TrySendSystemInfoAsync(ct);  // Fire and forget
             }
 
-            // Fallback to GET for backward compatibility or if no system info
+            // GET the current alert
             try
             {
-                if (_httpClient == null) return null;
                 using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
                 using var getResp = await _httpClient.SendAsync(getReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
 
@@ -288,6 +255,37 @@ namespace GridBanner
             {
                 // Connection failed - don't update last successful connection
                 return null;
+            }
+        }
+
+        private async Task TrySendSystemInfoAsync(CancellationToken ct)
+        {
+            if (_httpClient == null || _systemInfo == null || _baseUrl == null) return;
+
+            try
+            {
+                var systemInfoJson = JsonSerializer.Serialize(new
+                {
+                    workstation_name = _systemInfo.WorkstationName,
+                    username = _systemInfo.Username,
+                    classification = _systemInfo.Classification,
+                    location = _systemInfo.Location,
+                    company = _systemInfo.Company,
+                    background_color = _systemInfo.BackgroundColor,
+                    foreground_color = _systemInfo.ForegroundColor,
+                    compliance_status = _systemInfo.ComplianceStatus
+                }, _jsonOptions);
+
+                var systemsUrl = $"{_baseUrl}/api/systems";
+                using var req = new HttpRequestMessage(HttpMethod.Post, systemsUrl);
+                req.Content = new StringContent(systemInfoJson, Encoding.UTF8, "application/json");
+                using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+                
+                // We don't care about the response - this is just for registration
+            }
+            catch
+            {
+                // Silently ignore system info registration failures
             }
         }
 
