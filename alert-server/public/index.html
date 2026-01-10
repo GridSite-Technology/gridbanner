@@ -320,6 +320,7 @@
             <button class="tab" onclick="switchTab('templates')">Templates</button>
             <button class="tab" onclick="switchTab('sites')">Sites</button>
             <button class="tab" onclick="switchTab('systems')">Systems</button>
+            <button class="tab" onclick="switchTab('audio')">Audio Files</button>
             <button class="tab" onclick="switchTab('settings')">Settings</button>
         </div>
 
@@ -346,6 +347,13 @@
 
         <div id="systemsTab" class="tab-content">
             <div id="systemsList"></div>
+        </div>
+
+        <div id="audioTab" class="tab-content">
+            <div style="margin-bottom: 15px;">
+                <button class="btn" onclick="showUploadAudioModal()">Upload Audio File</button>
+            </div>
+            <div id="audioList"></div>
         </div>
 
         <div id="settingsTab" class="tab-content">

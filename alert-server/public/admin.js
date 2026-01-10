@@ -91,6 +91,8 @@ function switchTab(tabName) {
         loadSites();
     } else if (tabName === 'systems') {
         loadSystems();
+    } else if (tabName === 'audio') {
+        loadAudioFiles();
     } else if (tabName === 'settings') {
         loadSettings();
     }
@@ -128,6 +130,7 @@ async function loadAlerts() {
                     <div><strong>Background:</strong> ${alert.background_color || 'N/A'}</div>
                     <div><strong>Foreground:</strong> ${alert.foreground_color || 'N/A'}</div>
                     ${alert.site ? `<div><strong>Site:</strong> ${alert.site}</div>` : '<div><strong>Site:</strong> All Sites</div>'}
+                    ${alert.audio_file ? `<div><strong>Sound:</strong> ${alert.audio_file}</div>` : '<div><strong>Sound:</strong> System Beep</div>'}
                     ${alert.alert_contact_name ? `<div><strong>Contact:</strong> ${alert.alert_contact_name}</div>` : ''}
                 </div>
             </div>
@@ -194,6 +197,12 @@ function showNewAlertModal() {
                 </select>
             </div>
             <div class="form-group">
+                <label>Alert Sound</label>
+                <select id="alertAudioFile">
+                    <option value="">System Beep (default)</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Contact Name</label>
                 <input type="text" id="alertContactName">
             </div>
@@ -218,6 +227,7 @@ function showNewAlertModal() {
     
     loadTemplatesForSelect('alertTemplate');
     loadSitesForSelect('alertSite');
+    loadAudioFilesForSelect('alertAudioFile');
     loadSettingsForAlert();
 }
 
@@ -231,6 +241,7 @@ async function createAlert(event) {
         background_color: document.getElementById('alertBgColor').value,
         foreground_color: document.getElementById('alertFgColor').value,
         site: document.getElementById('alertSite').value || null,
+        audio_file: document.getElementById('alertAudioFile').value || null,
         alert_contact_name: document.getElementById('alertContactName').value || null,
         alert_contact_phone: document.getElementById('alertContactPhone').value || null,
         alert_contact_email: document.getElementById('alertContactEmail').value || null,
@@ -261,6 +272,7 @@ async function loadTemplateForAlert() {
             document.getElementById('alertBgColor').value = template.background_color;
             document.getElementById('alertFgColor').value = template.foreground_color;
             document.getElementById('alertSite').value = template.site || '';
+            document.getElementById('alertAudioFile').value = template.audio_file || '';
             document.getElementById('alertContactName').value = template.alert_contact_name || '';
             document.getElementById('alertContactPhone').value = template.alert_contact_phone || '';
             document.getElementById('alertContactEmail').value = template.alert_contact_email || '';
@@ -300,6 +312,7 @@ async function loadTemplates() {
                     <div><strong>Summary:</strong> ${template.summary}</div>
                     <div><strong>Message:</strong> ${template.message}</div>
                     ${template.site ? `<div><strong>Site:</strong> ${template.site}</div>` : '<div><strong>Site:</strong> All Sites</div>'}
+                    ${template.audio_file ? `<div><strong>Sound:</strong> ${template.audio_file}</div>` : '<div><strong>Sound:</strong> System Beep</div>'}
                 </div>
             </div>
         `).join('');
@@ -323,6 +336,7 @@ async function useTemplate(templateId) {
             background_color: template.background_color,
             foreground_color: template.foreground_color,
             site: template.site,
+            audio_file: template.audio_file || null,
             alert_contact_name: template.alert_contact_name || data.settings.default_contact_name,
             alert_contact_phone: template.alert_contact_phone || data.settings.default_contact_phone,
             alert_contact_email: template.alert_contact_email || data.settings.default_contact_email,
@@ -380,6 +394,12 @@ function showNewTemplateModal(templateId = null) {
                 </select>
             </div>
             <div class="form-group">
+                <label>Alert Sound</label>
+                <select id="templateAudioFile">
+                    <option value="">System Beep (default)</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Contact Name</label>
                 <input type="text" id="templateContactName">
             </div>
@@ -403,6 +423,7 @@ function showNewTemplateModal(templateId = null) {
     `);
 
     loadSitesForSelect('templateSite');
+    loadAudioFilesForSelect('templateAudioFile');
     
     if (isEdit) {
         loadTemplateForEdit(templateId);
@@ -423,6 +444,7 @@ async function loadTemplateForEdit(templateId) {
             document.getElementById('templateBgColor').value = template.background_color;
             document.getElementById('templateFgColor').value = template.foreground_color;
             document.getElementById('templateSite').value = template.site || '';
+            document.getElementById('templateAudioFile').value = template.audio_file || '';
             document.getElementById('templateContactName').value = template.alert_contact_name || '';
             document.getElementById('templateContactPhone').value = template.alert_contact_phone || '';
             document.getElementById('templateContactEmail').value = template.alert_contact_email || '';
@@ -444,6 +466,7 @@ async function saveTemplate(event, templateId) {
         background_color: document.getElementById('templateBgColor').value,
         foreground_color: document.getElementById('templateFgColor').value,
         site: document.getElementById('templateSite').value || null,
+        audio_file: document.getElementById('templateAudioFile').value || null,
         alert_contact_name: document.getElementById('templateContactName').value || null,
         alert_contact_phone: document.getElementById('templateContactPhone').value || null,
         alert_contact_email: document.getElementById('templateContactEmail').value || null,
@@ -656,6 +679,7 @@ function loadAllData() {
     loadTemplates();
     loadSites();
     loadSystems();
+    loadAudioFiles();
     loadSettings();
 }
 
@@ -757,5 +781,131 @@ function showMessage(message, type) {
     setTimeout(() => {
         messageEl.remove();
     }, 5000);
+}
+
+// Audio File Management
+async function loadAudioFiles() {
+    const container = document.getElementById('audioList');
+    container.innerHTML = '<div class="empty-state">Loading audio files...</div>';
+
+    try {
+        const files = await apiCall('/audio');
+        
+        if (files.length === 0) {
+            container.innerHTML = '<div class="empty-state">No audio files found. Upload audio files to use custom alert sounds.</div>';
+            return;
+        }
+
+        container.innerHTML = files.map(file => `
+            <div class="alert-item" style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="item-title">${file.name}</div>
+                <div class="item-actions">
+                    <button class="btn btn-secondary" onclick="renameAudio('${file.name}')">Rename</button>
+                    <button class="btn btn-danger" onclick="deleteAudio('${file.name}')">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = `<div class="error show">Error loading audio files: ${error.message}</div>`;
+    }
+}
+
+function showUploadAudioModal() {
+    const modal = createModal('Upload Audio File', `
+        <form id="audioForm" onsubmit="uploadAudio(event)">
+            <div class="form-group">
+                <label>File Name</label>
+                <input type="text" id="audioFileName" required placeholder="e.g., alert-sound.mp3">
+            </div>
+            <div class="form-group">
+                <label>Select File</label>
+                <input type="file" id="audioFile" accept="audio/*" required>
+            </div>
+            <div style="margin-top: 20px;">
+                <button type="submit" class="btn">Upload</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </form>
+    `);
+}
+
+async function uploadAudio(event) {
+    event.preventDefault();
+    
+    const fileName = document.getElementById('audioFileName').value;
+    const fileInput = document.getElementById('audioFile');
+    
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showMessage('Please select a file', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('name', fileName);
+
+    try {
+        const response = await fetch('/api/audio', {
+            method: 'POST',
+            headers: {
+                'X-API-Key': apiKey
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`);
+        }
+
+        showMessage('Audio file uploaded successfully', 'success');
+        closeModal();
+        loadAudioFiles();
+    } catch (error) {
+        showMessage(`Error uploading audio: ${error.message}`, 'error');
+    }
+}
+
+async function renameAudio(oldName) {
+    const newName = prompt('Enter new name:', oldName);
+    if (!newName || newName === oldName) {
+        return;
+    }
+
+    try {
+        await apiCall(`/audio/${encodeURIComponent(oldName)}`, 'PUT', { name: newName });
+        showMessage('Audio file renamed successfully', 'success');
+        loadAudioFiles();
+    } catch (error) {
+        showMessage(`Error renaming audio: ${error.message}`, 'error');
+    }
+}
+
+async function deleteAudio(fileName) {
+    if (!confirm(`Are you sure you want to delete "${fileName}"?`)) {
+        return;
+    }
+
+    try {
+        await apiCall(`/audio/${encodeURIComponent(fileName)}`, 'DELETE');
+        showMessage('Audio file deleted successfully', 'success');
+        loadAudioFiles();
+    } catch (error) {
+        showMessage(`Error deleting audio: ${error.message}`, 'error');
+    }
+}
+
+async function loadAudioFilesForSelect(selectId) {
+    try {
+        const files = await apiCall('/audio');
+        const select = document.getElementById(selectId);
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">System Beep (default)</option>' +
+            files.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+        if (currentValue) {
+            select.value = currentValue;
+        }
+    } catch (error) {
+        console.error('Error loading audio files:', error);
+    }
 }
 

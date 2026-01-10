@@ -396,7 +396,7 @@ app.delete('/api/audio/:name', authenticate, async (req, res) => {
     }
 });
 
-// Serve audio files
+// Serve audio files (for web preview)
 app.get('/api/audio/:name', async (req, res) => {
     try {
         const fileName = decodeURIComponent(req.params.name);
@@ -410,6 +410,30 @@ app.get('/api/audio/:name', async (req, res) => {
         }
         
         res.sendFile(filePath);
+    } catch (error) {
+        res.status(404).json({ error: 'Audio file not found' });
+    }
+});
+
+// Audio download endpoint (for GridBanner clients)
+app.get('/api/audio/:name/download', async (req, res) => {
+    try {
+        const fileName = decodeURIComponent(req.params.name);
+        const filePath = path.join(AUDIO_DIR, fileName);
+        
+        // Security: ensure file is in audio directory
+        const resolvedPath = path.resolve(filePath);
+        const resolvedDir = path.resolve(AUDIO_DIR);
+        if (!resolvedPath.startsWith(resolvedDir)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        // Check file exists
+        await fs.access(filePath);
+        
+        // Set download headers
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.sendFile(resolvedPath);
     } catch (error) {
         res.status(404).json({ error: 'Audio file not found' });
     }

@@ -1,23 +1,44 @@
 // Microsoft Teams SDK initialization
 let teamsContext = null;
+let isTeamsContext = false;
 
-// Check if we're in Teams context
-if (typeof microsoftTeams !== 'undefined') {
-    microsoftTeams.app.initialize().then(() => {
-        microsoftTeams.app.getContext().then(context => {
-            teamsContext = context;
-            loadConfig();
-        }).catch(() => {
-            // Not in Teams, load config anyway
-            loadConfig();
-        });
-    }).catch(() => {
-        // Not in Teams, load config anyway
-        loadConfig();
-    });
-} else {
-    // Not in Teams context, load config anyway
+// Initialize the app
+async function initApp() {
+    console.log('GridBanner Teams App initializing...');
+    
+    // Try to initialize Teams SDK
+    if (typeof microsoftTeams !== 'undefined') {
+        try {
+            console.log('Teams SDK found, initializing...');
+            await microsoftTeams.app.initialize();
+            console.log('Teams SDK initialized successfully');
+            
+            try {
+                teamsContext = await microsoftTeams.app.getContext();
+                isTeamsContext = true;
+                console.log('Teams context:', teamsContext);
+                
+                // Notify Teams that the app is ready
+                microsoftTeams.app.notifySuccess();
+            } catch (contextError) {
+                console.log('Could not get Teams context:', contextError);
+            }
+        } catch (initError) {
+            console.log('Teams SDK init failed (probably not in Teams):', initError);
+        }
+    } else {
+        console.log('Teams SDK not found, running in standalone mode');
+    }
+    
+    // Load config regardless of Teams context
     loadConfig();
+}
+
+// Start initialization when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
 }
 
 // Configuration
@@ -172,6 +193,7 @@ async function loadAlerts() {
                     <div><strong>Background:</strong> ${alert.background_color || 'N/A'}</div>
                     <div><strong>Foreground:</strong> ${alert.foreground_color || 'N/A'}</div>
                     ${alert.site ? `<div><strong>Site:</strong> ${alert.site}</div>` : ''}
+                    ${alert.audio_file ? `<div><strong>Sound:</strong> ${alert.audio_file}</div>` : '<div><strong>Sound:</strong> System Beep</div>'}
                     ${alert.alert_contact_name ? `<div><strong>Contact:</strong> ${alert.alert_contact_name}</div>` : ''}
                 </div>
             </div>
@@ -238,6 +260,12 @@ function showNewAlertModal() {
                 </select>
             </div>
             <div class="form-group">
+                <label>Alert Sound</label>
+                <select id="alertAudioFile">
+                    <option value="">System Beep (default)</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Contact Name</label>
                 <input type="text" id="alertContactName">
             </div>
@@ -262,6 +290,7 @@ function showNewAlertModal() {
     
     loadTemplatesForSelect('alertTemplate');
     loadSitesForSelect('alertSite');
+    loadAudioFilesForSelect('alertAudioFile');
     loadSettingsForAlert();
 }
 
@@ -275,6 +304,7 @@ async function createAlert(event) {
         background_color: document.getElementById('alertBgColor').value,
         foreground_color: document.getElementById('alertFgColor').value,
         site: document.getElementById('alertSite').value || null,
+        audio_file: document.getElementById('alertAudioFile').value || null,
         alert_contact_name: document.getElementById('alertContactName').value || null,
         alert_contact_phone: document.getElementById('alertContactPhone').value || null,
         alert_contact_email: document.getElementById('alertContactEmail').value || null,
@@ -305,6 +335,7 @@ async function loadTemplateForAlert() {
             document.getElementById('alertBgColor').value = template.background_color;
             document.getElementById('alertFgColor').value = template.foreground_color;
             document.getElementById('alertSite').value = template.site || '';
+            document.getElementById('alertAudioFile').value = template.audio_file || '';
             document.getElementById('alertContactName').value = template.alert_contact_name || '';
             document.getElementById('alertContactPhone').value = template.alert_contact_phone || '';
             document.getElementById('alertContactEmail').value = template.alert_contact_email || '';
@@ -344,6 +375,7 @@ async function loadTemplates() {
                     <div><strong>Summary:</strong> ${template.summary}</div>
                     <div><strong>Message:</strong> ${template.message}</div>
                     ${template.site ? `<div><strong>Site:</strong> ${template.site}</div>` : '<div><strong>Site:</strong> All Sites</div>'}
+                    ${template.audio_file ? `<div><strong>Sound:</strong> ${template.audio_file}</div>` : '<div><strong>Sound:</strong> System Beep</div>'}
                 </div>
             </div>
         `).join('');
@@ -367,6 +399,7 @@ async function useTemplate(templateId) {
             background_color: template.background_color,
             foreground_color: template.foreground_color,
             site: template.site,
+            audio_file: template.audio_file || null,
             alert_contact_name: template.alert_contact_name || data.settings.default_contact_name,
             alert_contact_phone: template.alert_contact_phone || data.settings.default_contact_phone,
             alert_contact_email: template.alert_contact_email || data.settings.default_contact_email,
@@ -424,6 +457,12 @@ function showNewTemplateModal(templateId = null) {
                 </select>
             </div>
             <div class="form-group">
+                <label>Alert Sound</label>
+                <select id="templateAudioFile">
+                    <option value="">System Beep (default)</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Contact Name</label>
                 <input type="text" id="templateContactName">
             </div>
@@ -447,6 +486,7 @@ function showNewTemplateModal(templateId = null) {
     `);
 
     loadSitesForSelect('templateSite');
+    loadAudioFilesForSelect('templateAudioFile');
     
     if (isEdit) {
         loadTemplateForEdit(templateId);
@@ -467,6 +507,7 @@ async function loadTemplateForEdit(templateId) {
             document.getElementById('templateBgColor').value = template.background_color;
             document.getElementById('templateFgColor').value = template.foreground_color;
             document.getElementById('templateSite').value = template.site || '';
+            document.getElementById('templateAudioFile').value = template.audio_file || '';
             document.getElementById('templateContactName').value = template.alert_contact_name || '';
             document.getElementById('templateContactPhone').value = template.alert_contact_phone || '';
             document.getElementById('templateContactEmail').value = template.alert_contact_email || '';
@@ -488,6 +529,7 @@ async function saveTemplate(event, templateId) {
         background_color: document.getElementById('templateBgColor').value,
         foreground_color: document.getElementById('templateFgColor').value,
         site: document.getElementById('templateSite').value || null,
+        audio_file: document.getElementById('templateAudioFile').value || null,
         alert_contact_name: document.getElementById('templateContactName').value || null,
         alert_contact_phone: document.getElementById('templateContactPhone').value || null,
         alert_contact_email: document.getElementById('templateContactEmail').value || null,
@@ -838,6 +880,21 @@ async function loadSitesForSelect(selectId) {
         }
     } catch (error) {
         console.error('Error loading sites:', error);
+    }
+}
+
+async function loadAudioFilesForSelect(selectId) {
+    try {
+        const files = await apiCall('/api/audio');
+        const select = document.getElementById(selectId);
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">System Beep (default)</option>' +
+            files.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+        if (currentValue) {
+            select.value = currentValue;
+        }
+    } catch (error) {
+        console.error('Error loading audio files:', error);
     }
 }
 
