@@ -27,8 +27,8 @@
     {
       "entityId": "gridbanner-alerts",
       "name": "Alerts",
-      "contentUrl": "http://localhost:3000/teams-app.html",
-      "websiteUrl": "http://localhost:3000/teams-app.html",
+      "contentUrl": "https://umbonic-roseanna-cuppy.ngrok-free.dev/teams-app.html",
+      "websiteUrl": "https://umbonic-roseanna-cuppy.ngrok-free.dev/teams-app.html",
       "scopes": ["personal", "team"]
     }
   ],
@@ -37,7 +37,7 @@
     "messageTeamMembers"
   ],
   "validDomains": [
-    "localhost"
+    "umbonic-roseanna-cuppy.ngrok-free.dev"
   ]
 }
 
