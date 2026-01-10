@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Media;
@@ -17,11 +18,15 @@ namespace GridBanner
         private readonly List<AlertBarWindow> _alertWindows = new();
         private readonly List<SuperCriticalAlertWindow> _superCriticalWindows = new();
         private readonly AlertSoundPlayer _alertSoundPlayer = new();
+        private readonly KeyringManager _keyringManager = new();
         private AlertManager? _alertManager;
         private System.Windows.Threading.DispatcherTimer? _connectivityTimer;
+        private System.Windows.Threading.DispatcherTimer? _keyringCheckTimer;
         private AlertMessage? _activeAlert;
         private string? _dismissedAlertSignature;
         private string? _closedSuperCriticalSignature;
+        private bool _keyringEnabled = false;
+        private List<PublicKeyInfo> _pendingKeys = new();
 
         private static readonly string LogPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -161,6 +166,10 @@ namespace GridBanner
                 var permitTerminate = ParseInt(config.GetValueOrDefault("permit_terminate", "0"), 0) == 1;
                 var tripleClickMenuEnabled = ParseInt(config.GetValueOrDefault("disable_triple_click_menu", "0"), 0) == 0;
                 
+                // Keyring feature (optional)
+                _keyringEnabled = ParseInt(config.GetValueOrDefault("keyring_enabled", "0"), 0) == 1;
+                LogMessage($"Keyring feature: {(_keyringEnabled ? "enabled" : "disabled")}");
+                
                 CreateOrRefreshBanners(
                     computerName,
                     username,
@@ -174,10 +183,17 @@ namespace GridBanner
                     complianceStatus,
                     alertServerConfigured,
                     permitTerminate,
-                    tripleClickMenuEnabled);
+                    tripleClickMenuEnabled,
+                    _keyringEnabled);
 
                 // Alert overlays (optional; configured via conf.ini)
                 SetupAlertSystem(config, bannerHeight, computerName, username, orgName, classificationLevel, backgroundColor, foregroundColor, complianceStatus);
+                
+                // Keyring setup (optional)
+                if (_keyringEnabled && alertServerConfigured)
+                {
+                    SetupKeyringSystem(alertUrl, username);
+                }
 
                 // Hide the main window
                 Hide();
@@ -203,9 +219,10 @@ namespace GridBanner
             double bannerHeight,
             bool complianceEnabled,
             int complianceStatus,
-            bool alertServerConfigured = false,
-            bool permitTerminate = false,
-            bool tripleClickMenuEnabled = true)
+            bool alertServerConfigured,
+            bool permitTerminate,
+            bool tripleClickMenuEnabled,
+            bool keyringEnabled)
         {
             CloseAllBanners();
 
@@ -248,6 +265,14 @@ namespace GridBanner
                     {
                         bannerWindow.AlertServerConfigured = true;
                         bannerWindow.LastServerConnection = null; // Will be updated by timer
+                    }
+                    
+                    // Set up keyring indicator click handler
+                    if (keyringEnabled)
+                    {
+                        bannerWindow.KeyringEnabled = true;
+                        bannerWindow.KeyringIndicatorClicked += BannerWindow_KeyringIndicatorClicked;
+                        bannerWindow.ManageKeysRequested += BannerWindow_ManageKeysRequested;
                     }
                     
                     LogMessage($"Banner window {screenIndex} configured: Left={bannerWindow.Left}, Top={bannerWindow.Top}, Width={bannerWindow.Width}, Height={bannerWindow.Height}, Topmost={bannerWindow.Topmost}");
@@ -388,6 +413,86 @@ namespace GridBanner
                 {
                     // ignore
                 }
+            }
+        }
+
+        // ============================================
+        // Keyring Management
+        // ============================================
+        
+        private void SetupKeyringSystem(string alertUrl, string username)
+        {
+            LogMessage($"Setting up keyring system for user: {username}");
+            
+            // Configure keyring manager
+            _keyringManager.LogMessage += (_, message) => LogMessage($"Keyring: {message}");
+            _keyringManager.Configure(alertUrl, username, true);
+            
+            // Initial key check
+            _ = CheckForNewKeysAsync();
+            
+            // Set up periodic check (every 5 minutes)
+            _keyringCheckTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMinutes(5)
+            };
+            _keyringCheckTimer.Tick += async (s, e) => await CheckForNewKeysAsync();
+            _keyringCheckTimer.Start();
+        }
+        
+        private async Task CheckForNewKeysAsync()
+        {
+            try
+            {
+                _pendingKeys = await _keyringManager.DetectNewLocalKeysAsync();
+                
+                // Fire and forget - UI update
+                #pragma warning disable CS4014
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    foreach (var banner in _bannerWindows)
+                    {
+                        try
+                        {
+                            banner.PendingKeyCount = _pendingKeys.Count;
+                        }
+                        catch { /* ignore */ }
+                    }
+                }));
+                #pragma warning restore CS4014
+                
+                if (_pendingKeys.Count > 0)
+                {
+                    LogMessage($"Detected {_pendingKeys.Count} new SSH key(s) ready to upload");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error checking for new keys: {ex.Message}");
+            }
+        }
+        
+        private void BannerWindow_KeyringIndicatorClicked(object? sender, EventArgs e)
+        {
+            ShowManageKeysWindow();
+        }
+        
+        private void BannerWindow_ManageKeysRequested(object? sender, EventArgs e)
+        {
+            ShowManageKeysWindow();
+        }
+        
+        private void ShowManageKeysWindow()
+        {
+            try
+            {
+                var window = new ManageKeysWindow(_keyringManager);
+                window.Closed += async (s, e) => await CheckForNewKeysAsync(); // Refresh after closing
+                window.Show();
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error opening Manage Keys window: {ex.Message}");
             }
         }
 
@@ -777,6 +882,8 @@ namespace GridBanner
             CloseAllSuperCriticalWindows();
             try { _alertManager?.Dispose(); } catch { /* ignore */ }
             _alertManager = null;
+            try { _keyringCheckTimer?.Stop(); } catch { /* ignore */ }
+            _keyringCheckTimer = null;
 
             try
             {

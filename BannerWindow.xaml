@@ -89,6 +89,20 @@
                     <ToolTip Content="{Binding ConnectivityWarningTooltip}"/>
                 </TextBlock.ToolTip>
             </TextBlock>
+            
+            <TextBlock Text="🔑"
+                       Foreground="#00CED1"
+                       FontSize="16"
+                       FontWeight="Bold"
+                       Margin="8,0,0,0"
+                       VerticalAlignment="Center"
+                       Visibility="{Binding KeyringIndicatorVisibility}"
+                       Cursor="Hand"
+                       MouseDown="KeyringIndicator_MouseDown">
+                <TextBlock.ToolTip>
+                    <ToolTip Content="{Binding KeyringIndicatorTooltip}"/>
+                </TextBlock.ToolTip>
+            </TextBlock>
         </StackPanel>
     </Grid>
 </Window>

@@ -684,6 +684,7 @@ function loadAllData() {
     loadSites();
     loadSystems();
     loadAudioFiles();
+    loadUsers();
     loadSettings();
 }
 
@@ -910,6 +911,122 @@ async function loadAudioFilesForSelect(selectId) {
         }
     } catch (error) {
         console.error('Error loading audio files:', error);
+    }
+}
+
+// ============================================
+// User Keyring Management
+// ============================================
+
+async function loadUsers() {
+    const container = document.getElementById('usersList');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="loading">Loading users...</div>';
+    
+    try {
+        const users = await apiCall('/users');
+        
+        if (users.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <p>No users have registered public keys yet.</p>
+                    <p style="color: #666; font-size: 0.9em;">
+                        Users can publish their SSH keys from GridBanner clients.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = users.map(user => `
+            <div class="user-item" style="border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 4px;">
+                <div class="item-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div class="item-title" style="font-weight: bold; font-size: 1.1em;">${user.display_name || user.username}</div>
+                        <div style="color: #666; font-size: 0.9em;">${user.username}</div>
+                    </div>
+                    <div class="item-actions">
+                        <span class="badge" style="background: #00ADEE; color: white; padding: 4px 8px; border-radius: 4px;">
+                            ${user.key_count} key${user.key_count !== 1 ? 's' : ''}
+                        </span>
+                        <button class="btn btn-secondary" onclick="showUserKeys('${encodeURIComponent(user.username)}')">View Keys</button>
+                        <button class="btn btn-danger" onclick="deleteUser('${encodeURIComponent(user.username)}')">Delete</button>
+                    </div>
+                </div>
+                ${user.last_seen ? `<div style="color: #999; font-size: 0.8em; margin-top: 5px;">Last seen: ${new Date(user.last_seen).toLocaleString()}</div>` : ''}
+            </div>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = `<div class="error">Error loading users: ${error.message}</div>`;
+    }
+}
+
+async function showUserKeys(encodedUsername) {
+    const username = decodeURIComponent(encodedUsername);
+    
+    try {
+        const keys = await apiCall(`/users/${encodedUsername}/keys`);
+        
+        const keysHtml = keys.length === 0 
+            ? '<p style="color: #666;">No public keys registered.</p>'
+            : keys.map(key => `
+                <div style="border: 1px solid #eee; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: #f9f9f9;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <strong>${key.key_name || key.key_type}</strong>
+                        <button class="btn btn-danger btn-sm" onclick="deleteUserKey('${encodedUsername}', '${key.id}')" style="padding: 4px 8px; font-size: 0.8em;">Delete</button>
+                    </div>
+                    <div style="font-size: 0.85em; color: #666;">
+                        <div><strong>Type:</strong> ${key.key_type}</div>
+                        ${key.fingerprint ? `<div><strong>Fingerprint:</strong> <code style="font-size: 0.85em;">${key.fingerprint}</code></div>` : ''}
+                        <div><strong>Uploaded:</strong> ${new Date(key.uploaded_at).toLocaleString()}</div>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        <textarea readonly style="width: 100%; height: 60px; font-family: monospace; font-size: 0.75em; resize: vertical;">${key.key_data}</textarea>
+                    </div>
+                </div>
+            `).join('');
+        
+        const modal = createModal(`Public Keys for ${username}`, `
+            <div style="max-height: 60vh; overflow-y: auto;">
+                ${keysHtml}
+            </div>
+            <div style="margin-top: 15px; text-align: right;">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        `);
+    } catch (error) {
+        showMessage(`Error loading keys: ${error.message}`, 'error');
+    }
+}
+
+async function deleteUserKey(encodedUsername, keyId) {
+    if (!confirm('Are you sure you want to delete this key?')) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/users/${encodedUsername}/keys/${keyId}`, 'DELETE');
+        showMessage('Key deleted successfully', 'success');
+        closeModal();
+        showUserKeys(encodedUsername);
+    } catch (error) {
+        showMessage(`Error deleting key: ${error.message}`, 'error');
+    }
+}
+
+async function deleteUser(encodedUsername) {
+    const username = decodeURIComponent(encodedUsername);
+    if (!confirm(`Are you sure you want to delete user "${username}" and all their keys?`)) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/users/${encodedUsername}`, 'DELETE');
+        showMessage('User deleted successfully', 'success');
+        loadUsers();
+    } catch (error) {
+        showMessage(`Error deleting user: ${error.message}`, 'error');
     }
 }
 

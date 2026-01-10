@@ -24,6 +24,13 @@
                 Height="35"
                 Margin="0,0,0,5"
                 Click="LogsButton_Click"/>
+        <Button Name="ManageKeysButton"
+                Content="Manage Keys"
+                Width="150"
+                Height="35"
+                Margin="0,0,0,5"
+                Click="ManageKeysButton_Click"
+                Visibility="Collapsed"/>
         <Button Name="AboutButton"
                 Content="About"
                 Width="150"

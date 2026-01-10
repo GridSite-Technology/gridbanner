@@ -8,6 +8,7 @@ namespace GridBanner
     public partial class BannerMenuWindow : Window
     {
         private bool _permitTerminate = false;
+        private bool _keyringEnabled = false;
         
         public bool PermitTerminate
         {
@@ -22,6 +23,21 @@ namespace GridBanner
                 }
             }
         }
+        
+        public bool KeyringEnabled
+        {
+            get => _keyringEnabled;
+            set
+            {
+                _keyringEnabled = value;
+                if (ManageKeysButton != null)
+                {
+                    ManageKeysButton.Visibility = _keyringEnabled ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+        }
+        
+        public event EventHandler? ManageKeysClicked;
 
         public BannerMenuWindow()
         {
@@ -33,6 +49,7 @@ namespace GridBanner
             base.OnContentRendered(e);
             // Ensure visibility is set correctly after rendering
             TerminateButton.Visibility = PermitTerminate ? Visibility.Visible : Visibility.Collapsed;
+            ManageKeysButton.Visibility = KeyringEnabled ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void TerminateButton_Click(object sender, RoutedEventArgs e)
@@ -113,6 +130,7 @@ namespace GridBanner
                               $"  Compliance Status: {GetConfigValue("compliance_status")}\n" +
                               $"  Compliance Command: {GetConfigValue("compliance_check_command")}\n" +
                               $"  Permit Terminate: {GetConfigValue("permit_terminate")}\n" +
+                              $"  Keyring Enabled: {GetConfigValue("keyring_enabled")}\n" +
                               $"  Alert File Location: {GetConfigValue("alert_file_location")}\n" +
                               $"  Alert URL: {GetConfigValue("alert_url")}\n" +
                               $"  Alert Poll Seconds: {GetConfigValue("alert_poll_seconds")}";
@@ -181,6 +199,12 @@ SOFTWARE.";
             }
             
             // Close menu after opening GitHub
+            Close();
+        }
+        
+        private void ManageKeysButton_Click(object sender, RoutedEventArgs e)
+        {
+            ManageKeysClicked?.Invoke(this, EventArgs.Empty);
             Close();
         }
         

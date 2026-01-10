@@ -31,6 +31,10 @@ namespace GridBanner
             { "compliance_status", "0" },
             { "compliance_check_command", "" },
 
+            // Keyring feature: centralized public key management
+            // When enabled, GridBanner will detect local SSH keys and offer to upload them
+            { "keyring_enabled", "0" },  // Disabled by default
+
             // Multi-site support: comma-separated list of site names (e.g., "HQ,Remote,Lab")
             // If not set, workstation receives all alerts (backward compatible)
             // { "site_name", "" }  // No default - leave empty/unset
@@ -196,7 +200,8 @@ namespace GridBanner
                 "org_name",
                 "compliance_check_enabled",
                 "compliance_status",
-                "compliance_check_command"
+                "compliance_check_command",
+                "keyring_enabled"
             };
             var hasUnknownKeys = cfg.Keys.Any(k => !allowedKeys.Contains(k));
 

@@ -466,6 +466,166 @@ app.post('/api/systems', async (req, res) => {
     }
 });
 
+// ============================================
+// User Keyring Management Endpoints
+// ============================================
+
+// Get all users with their key counts (admin only)
+app.get('/api/users', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const users = data.users || {};
+        
+        // Return list of users with key counts
+        const userList = Object.entries(users).map(([username, userData]) => ({
+            username,
+            display_name: userData.display_name || username,
+            key_count: (userData.public_keys || []).length,
+            last_seen: userData.last_seen
+        }));
+        
+        res.json(userList);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get a specific user's public keys (admin only)
+app.get('/api/users/:username/keys', authenticate, async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        const data = await loadData();
+        const users = data.users || {};
+        const user = users[username];
+        
+        if (!user) {
+            return res.json([]);
+        }
+        
+        res.json(user.public_keys || []);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all public keys for a user (no auth - for GridBanner clients to sync)
+app.get('/api/keyring/:username', async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        const data = await loadData();
+        const users = data.users || {};
+        const user = users[username];
+        
+        if (!user) {
+            return res.json({ keys: [] });
+        }
+        
+        res.json({ 
+            username,
+            keys: user.public_keys || []
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Upload a public key (from GridBanner client)
+app.post('/api/keyring/:username/keys', async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        const { key_type, key_data, key_name, fingerprint } = req.body;
+        
+        if (!key_type || !key_data) {
+            return res.status(400).json({ error: 'key_type and key_data are required' });
+        }
+        
+        const data = await loadData();
+        if (!data.users) {
+            data.users = {};
+        }
+        if (!data.users[username]) {
+            data.users[username] = {
+                display_name: username,
+                public_keys: [],
+                last_seen: new Date().toISOString()
+            };
+        }
+        
+        // Check if key already exists (by fingerprint or key_data)
+        const existingKeys = data.users[username].public_keys || [];
+        const keyExists = existingKeys.some(k => 
+            (fingerprint && k.fingerprint === fingerprint) || 
+            k.key_data === key_data
+        );
+        
+        if (keyExists) {
+            return res.json({ success: true, message: 'Key already exists' });
+        }
+        
+        // Add new key
+        const newKey = {
+            id: Date.now().toString(),
+            key_type,
+            key_data,
+            key_name: key_name || `${key_type} key`,
+            fingerprint: fingerprint || null,
+            uploaded_at: new Date().toISOString()
+        };
+        
+        data.users[username].public_keys.push(newKey);
+        data.users[username].last_seen = new Date().toISOString();
+        
+        await saveData(data);
+        res.json({ success: true, key: newKey });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a public key (admin only)
+app.delete('/api/users/:username/keys/:keyId', authenticate, async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        const keyId = req.params.keyId;
+        
+        const data = await loadData();
+        if (!data.users || !data.users[username]) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const keys = data.users[username].public_keys || [];
+        const keyIndex = keys.findIndex(k => k.id === keyId);
+        
+        if (keyIndex === -1) {
+            return res.status(404).json({ error: 'Key not found' });
+        }
+        
+        keys.splice(keyIndex, 1);
+        await saveData(data);
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a user (admin only)
+app.delete('/api/users/:username', authenticate, async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        
+        const data = await loadData();
+        if (!data.users || !data.users[username]) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        delete data.users[username];
+        await saveData(data);
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start server
 async function startServer() {
     await loadConfig();

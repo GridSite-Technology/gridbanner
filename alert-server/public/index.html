@@ -329,6 +329,7 @@
             <button class="tab" onclick="switchTab('sites')">Sites</button>
             <button class="tab" onclick="switchTab('systems')">Systems</button>
             <button class="tab" onclick="switchTab('audio')">Audio Files</button>
+            <button class="tab" onclick="switchTab('users')">User Keyring</button>
             <button class="tab" onclick="switchTab('settings')">Settings</button>
         </div>
 
@@ -362,6 +363,15 @@
                 <button class="btn" onclick="showUploadAudioModal()">Upload Audio File</button>
             </div>
             <div id="audioList"></div>
+        </div>
+
+        <div id="usersTab" class="tab-content">
+            <h2>User Keyring</h2>
+            <p style="margin-bottom: 20px; color: #666;">
+                Users can publish their public SSH keys to this central keyring. 
+                Other users can then discover and import these keys.
+            </p>
+            <div id="usersList"></div>
         </div>
 
         <div id="settingsTab" class="tab-content">

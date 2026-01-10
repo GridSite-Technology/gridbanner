@@ -170,6 +170,38 @@ namespace GridBanner
             }
         }
         
+        // Keyring indicator
+        private int _pendingKeyCount = 0;
+        
+        public int PendingKeyCount
+        {
+            get => _pendingKeyCount;
+            set
+            {
+                if (_pendingKeyCount != value)
+                {
+                    _pendingKeyCount = value;
+                    OnPropertyChanged(nameof(PendingKeyCount));
+                    OnPropertyChanged(nameof(KeyringIndicatorVisibility));
+                    OnPropertyChanged(nameof(KeyringIndicatorTooltip));
+                }
+            }
+        }
+        
+        public Visibility KeyringIndicatorVisibility
+        {
+            get => _pendingKeyCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        
+        public string KeyringIndicatorTooltip
+        {
+            get => _pendingKeyCount == 1 
+                ? "1 new SSH key detected - click to manage" 
+                : $"{_pendingKeyCount} new SSH keys detected - click to manage";
+        }
+        
+        public event EventHandler? KeyringIndicatorClicked;
+        
         public Visibility ConnectivityWarningVisibility
         {
             get
@@ -232,6 +264,7 @@ namespace GridBanner
         private int _clickCount = 0;
         private bool _permitTerminate = false;
         private bool _tripleClickMenuEnabled = true;
+        private bool _keyringEnabled = false;
         private BannerMenuWindow? _currentMenuWindow = null;
         
         public bool PermitTerminate
@@ -245,6 +278,14 @@ namespace GridBanner
             get => _tripleClickMenuEnabled;
             set => _tripleClickMenuEnabled = value;
         }
+        
+        public bool KeyringEnabled
+        {
+            get => _keyringEnabled;
+            set => _keyringEnabled = value;
+        }
+        
+        public event EventHandler? ManageKeysRequested;
 
         public BannerWindow()
         {
@@ -263,6 +304,12 @@ namespace GridBanner
         private void Grid_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             HandleTripleClick();
+        }
+        
+        private void KeyringIndicator_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            e.Handled = true;  // Prevent triggering triple-click detection
+            KeyringIndicatorClicked?.Invoke(this, EventArgs.Empty);
         }
         
         private void HandleTripleClick()
@@ -316,8 +363,12 @@ namespace GridBanner
             var menuWindow = new BannerMenuWindow
             {
                 PermitTerminate = _permitTerminate,
+                KeyringEnabled = _keyringEnabled,
                 Owner = this
             };
+            
+            // Wire up manage keys click
+            menuWindow.ManageKeysClicked += (s, e) => ManageKeysRequested?.Invoke(this, EventArgs.Empty);
             
             // Position menu near mouse cursor
             var mousePos = System.Windows.Input.Mouse.GetPosition(this);
