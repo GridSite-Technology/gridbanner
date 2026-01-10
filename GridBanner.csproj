@@ -28,5 +28,11 @@
     <None Remove="BannerManager\**\*" />
   </ItemGroup>
 
+  <!-- Exclude teams-app folder (contains standalone C# scripts, not part of GridBanner) -->
+  <ItemGroup>
+    <Compile Remove="teams-app\**\*.cs" />
+    <None Remove="teams-app\**\*" />
+  </ItemGroup>
+
 </Project>
 
