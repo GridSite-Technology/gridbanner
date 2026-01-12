@@ -82,18 +82,84 @@ compliance_status = 0
 ; Optional: command to determine compliance. Exit code 0 => compliant, non-zero => non-compliant.
 ; Example: compliance_check_command = powershell.exe -NoProfile -Command "exit 0"
 compliance_check_command =
+
+; Alert system configuration
+; alert_file_location: Path to local JSON file for alerts (alternative to alert_url)
+alert_file_location = 
+; alert_url: URL to alert server API endpoint
+alert_url = 
+; alert_poll_seconds: How often to poll for alerts (1-300 seconds, default: 5)
+alert_poll_seconds = 5
+
+; Multi-site support: comma-separated list of site names (e.g., "HQ,Remote,Lab")
+; If not set, workstation receives all alerts (backward compatible)
+site_name = 
+
+; Tray-only mode: 1=hide banner (show only when alerts are active), 0=show banner always
+tray_only = 0
+
+; Security and menu options
+; permit_terminate: 1=allow terminate option in menu, 0=hide terminate option (default: 0)
+permit_terminate = 0
+; disable_triple_click_menu: 1=disable triple-click menu, 0=enable triple-click menu (default: 0)
+disable_triple_click_menu = 0
+
+; Keyring feature: centralized public key management
+; keyring_enabled: 1=enable keyring feature, 0=disable keyring feature (default: 0)
+keyring_enabled = 0
 ```
 
 ### Configuration Options
 
-- **background_color**: Hex color code for the banner background (default: `#000080` - Navy blue)
+#### Display Settings
+
+- **background_color**: Hex color code for the banner background (default: `#FFA500` - Orange)
 - **foreground_color**: Hex color code for the text (default: `#FFFFFF` - White)
 - **classification_level**: Text to display in the center (default: `UNSPECIFIED CLASSIFICATION`)
-- **banner_height**: Banner height in pixels (default: `30`)
-- **org_name**: Optional override for organization name (default: auto-detected)
+- **banner_height**: Banner height in pixels (default: `30`, min: `20`, max: `300`)
+- **org_name**: Optional override for organization name (default: auto-detected from Azure AD)
+
+#### Device Compliance Badge
+
 - **compliance_check_enabled**: `1` to show the badge, `0` to hide it (default: `1`)
 - **compliance_status**: `1` for compliant (green) / `0` for NOT compliant (red) (default: `0`)
+  - Used only if no command is set or command fails
+  - Note: GridBanner is conservative — it only shows COMPLIANT if a real check proves it
 - **compliance_check_command**: Optional command to run at startup; exit code `0` is treated as compliant. If the command is missing/fails/times out, GridBanner treats the device as **NOT compliant** (default: empty)
+  - Example: `compliance_check_command = powershell.exe -NoProfile -Command "exit 0"`
+
+#### Alert System
+
+- **alert_file_location**: Path to local JSON file for alerts (alternative to `alert_url`)
+  - Example: `alert_file_location = C:\gridbanner\alerts\current.json`
+- **alert_url**: URL to alert server API endpoint
+  - Example: `alert_url = https://example.com/api/alert`
+- **alert_poll_seconds**: How often to poll for alerts in seconds (default: `5`, min: `1`, max: `300`)
+
+#### Multi-Site Support
+
+- **site_name**: Comma-separated list of site names (e.g., `"HQ,Remote,Lab"`)
+  - If not set, workstation receives all alerts (backward compatible)
+  - Used to filter alerts to specific workstations
+
+#### Tray-Only Mode
+
+- **tray_only**: `1` to hide banner (show only when alerts are active), `0` to show banner always (default: `0`)
+  - When enabled, displays a system tray icon with the configured background color
+  - Banner appears automatically when alerts are triggered
+  - Right-click tray icon for menu access (same options as triple-click menu)
+
+#### Security and Menu Options
+
+- **permit_terminate**: `1` to allow terminate option in menu, `0` to hide terminate option (default: `0`)
+- **disable_triple_click_menu**: `1` to disable triple-click menu, `0` to enable triple-click menu (default: `0`)
+  - When enabled, triple-clicking the banner shows a context menu with options
+
+#### Keyring Feature
+
+- **keyring_enabled**: `1` to enable keyring feature, `0` to disable keyring feature (default: `0`)
+  - When enabled, GridBanner detects local SSH keys and offers to upload them to the alert server
+  - Requires `alert_url` to be configured
 
 ## Usage
 

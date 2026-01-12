@@ -370,6 +370,13 @@ namespace GridBanner
             // Wire up manage keys click
             menuWindow.ManageKeysClicked += (s, e) => ManageKeysRequested?.Invoke(this, EventArgs.Empty);
             
+            // Wire up reload config click
+            menuWindow.ReloadConfigClicked += (s, e) =>
+            {
+                var mainWindow = System.Windows.Application.Current.MainWindow as MainWindow;
+                mainWindow?.ReloadConfig();
+            };
+            
             // Position menu near mouse cursor
             var mousePos = System.Windows.Input.Mouse.GetPosition(this);
             var screenPos = PointToScreen(mousePos);

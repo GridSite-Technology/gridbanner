@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace GridBanner
@@ -81,12 +82,15 @@ namespace GridBanner
             
             foreach (var key in _currentSummary.PendingLocalKeys)
             {
+                var passwordNote = key.IsPasswordProtected ? " 🔒" : "";
                 localItems.Add(new KeyDisplayItem
                 {
                     KeyName = key.KeyName,
-                    KeyType = key.KeyType,
+                    KeyType = key.KeyType + passwordNote,
                     Fingerprint = key.Fingerprint,
-                    StatusText = "⬆ Ready to upload",
+                    StatusText = key.IsPasswordProtected 
+                        ? "⬆ Ready to upload (password required)" 
+                        : "⬆ Ready to upload",
                     StatusColor = Brushes.DodgerBlue,
                     ActionText = "Upload",
                     ActionVisibility = Visibility.Visible,
@@ -143,35 +147,61 @@ namespace GridBanner
         {
             if (sender is System.Windows.Controls.Button button && button.Tag is KeyDisplayItem item && item.OriginalKey != null)
             {
-                try
+                await UploadKeyWithPasswordPromptAsync(item);
+            }
+        }
+        
+        private async Task UploadKeyWithPasswordPromptAsync(KeyDisplayItem item, string? password = null)
+        {
+            if (item.OriginalKey == null) return;
+            
+            try
+            {
+                // Upload the key with proof of possession
+                var result = await _keyringManager.UploadKeyAsync(
+                    item.OriginalKey, 
+                    item.OriginalKey.SourcePath,
+                    password);
+                
+                if (result.Success)
                 {
-                    // Upload the key
-                    var success = await _keyringManager.UploadKeyAsync(item.OriginalKey);
-                    if (success)
+                    var verifiedText = result.Verified ? " (verified)" : "";
+                    MessageBox.Show(
+                        $"Key '{item.KeyName}' uploaded successfully{verifiedText}!", 
+                        "Success", 
+                        MessageBoxButton.OK, 
+                        MessageBoxImage.Information);
+                    await RefreshAsync();
+                }
+                else if (result.NeedsPassword)
+                {
+                    // Prompt for password
+                    var passwordDialog = new PasswordPromptWindow(item.KeyName ?? "SSH Key");
+                    if (passwordDialog.ShowDialog() == true && !string.IsNullOrEmpty(passwordDialog.Password))
                     {
-                        MessageBox.Show($"Key '{item.KeyName}' uploaded successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                        // Retry with password
+                        await UploadKeyWithPasswordPromptAsync(item, passwordDialog.Password);
+                    }
+                }
+                else
+                {
+                    // Ask if user wants to ignore
+                    var dialogResult = MessageBox.Show(
+                        $"Failed to upload key '{item.KeyName}'.\n\nError: {result.Error}\n\nWould you like to ignore this key?",
+                        "Upload Failed",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+                    
+                    if (dialogResult == MessageBoxResult.Yes)
+                    {
+                        _keyringManager.IgnoreKey(item.OriginalKey);
                         await RefreshAsync();
                     }
-                    else
-                    {
-                        // Ask if user wants to ignore
-                        var result = MessageBox.Show(
-                            $"Failed to upload key '{item.KeyName}'.\n\nWould you like to ignore this key?",
-                            "Upload Failed",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Warning);
-                        
-                        if (result == MessageBoxResult.Yes)
-                        {
-                            _keyringManager.IgnoreKey(item.OriginalKey);
-                            await RefreshAsync();
-                        }
-                    }
                 }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

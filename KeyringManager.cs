@@ -34,6 +34,18 @@ namespace GridBanner
         
         [JsonPropertyName("uploaded_at")]
         public string? UploadedAt { get; init; }
+        
+        /// <summary>
+        /// Local file path where this key was found (not serialized to server).
+        /// </summary>
+        [JsonIgnore]
+        public string? SourcePath { get; init; }
+        
+        /// <summary>
+        /// Whether the private key is password-protected (not serialized to server).
+        /// </summary>
+        [JsonIgnore]
+        public bool IsPasswordProtected { get; init; }
     }
 
     /// <summary>
@@ -178,15 +190,28 @@ namespace GridBanner
                         var keyName = Path.GetFileName(path);
                         var fingerprint = ComputeKeyFingerprint(keyData);
                         
+                        // Check if the private key is password-protected
+                        var isPasswordProtected = false;
+                        try
+                        {
+                            isPasswordProtected = SshKeySigner.IsKeyPasswordProtected(path);
+                        }
+                        catch
+                        {
+                            // Ignore errors checking password protection
+                        }
+                        
                         keys.Add(new PublicKeyInfo
                         {
                             KeyType = keyType,
                             KeyData = keyData,
                             KeyName = keyName,
-                            Fingerprint = fingerprint
+                            Fingerprint = fingerprint,
+                            SourcePath = path,
+                            IsPasswordProtected = isPasswordProtected
                         });
                         
-                        Log($"Detected key: {keyName} ({keyType})");
+                        Log($"Detected key: {keyName} ({keyType}){(isPasswordProtected ? " [password protected]" : "")}");
                     }
                     catch (Exception ex)
                     {
@@ -199,18 +224,69 @@ namespace GridBanner
         }
 
         /// <summary>
-        /// Upload a public key to the central keyring.
+        /// Upload a public key to the central keyring with proof of possession.
         /// </summary>
-        public async Task<bool> UploadKeyAsync(PublicKeyInfo key, CancellationToken ct = default)
+        /// <param name="key">The public key to upload</param>
+        /// <param name="keyPath">Path to the public key file (to find private key)</param>
+        /// <param name="password">Optional password for encrypted private keys</param>
+        /// <param name="ct">Cancellation token</param>
+        public async Task<KeyUploadResult> UploadKeyAsync(PublicKeyInfo key, string? keyPath = null, string? password = null, CancellationToken ct = default)
         {
             if (!_enabled || string.IsNullOrEmpty(_baseUrl) || string.IsNullOrEmpty(_username))
             {
                 Log("Keyring not properly configured for upload.");
-                return false;
+                return new KeyUploadResult { Success = false, Error = "Keyring not configured" };
             }
 
             try
             {
+                string? challenge = null;
+                string? signature = null;
+                
+                // If we have a key path, do challenge-response verification
+                if (!string.IsNullOrEmpty(keyPath) && !string.IsNullOrEmpty(key.Fingerprint))
+                {
+                    // Check if key needs password
+                    var needsPassword = SshKeySigner.IsKeyPasswordProtected(keyPath);
+                    if (needsPassword && string.IsNullOrEmpty(password))
+                    {
+                        Log($"Key {key.KeyName} requires a password.");
+                        return new KeyUploadResult 
+                        { 
+                            Success = false, 
+                            NeedsPassword = true,
+                            Error = "Private key is password protected" 
+                        };
+                    }
+                    
+                    // Request a challenge
+                    challenge = await RequestChallengeAsync(key.Fingerprint, ct);
+                    if (string.IsNullOrEmpty(challenge))
+                    {
+                        Log("Failed to get challenge from server.");
+                        return new KeyUploadResult { Success = false, Error = "Failed to get challenge from server" };
+                    }
+                    
+                    Log($"Received challenge, signing with private key...");
+                    
+                    // Sign the challenge
+                    try
+                    {
+                        signature = SshKeySigner.SignChallenge(keyPath, challenge, password);
+                        Log($"Challenge signed successfully.");
+                    }
+                    catch (Exception signEx)
+                    {
+                        Log($"Failed to sign challenge: {signEx.Message}");
+                        return new KeyUploadResult 
+                        { 
+                            Success = false, 
+                            Error = $"Failed to sign challenge: {signEx.Message}",
+                            NeedsPassword = signEx.Message.Contains("password") || signEx.Message.Contains("decrypt")
+                        };
+                    }
+                }
+                
                 var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(_username)}/keys";
                 Log($"Uploading key to: {url}");
                 
@@ -219,7 +295,9 @@ namespace GridBanner
                     key_type = key.KeyType,
                     key_data = key.KeyData,
                     key_name = key.KeyName,
-                    fingerprint = key.Fingerprint
+                    fingerprint = key.Fingerprint,
+                    challenge = challenge,
+                    signature = signature
                 }, _jsonOptions);
                 
                 using var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -229,24 +307,66 @@ namespace GridBanner
                 
                 if (response.IsSuccessStatusCode)
                 {
-                    Log($"Key {key.KeyName} uploaded successfully.");
+                    Log($"Key {key.KeyName} uploaded successfully (verified: {signature != null}).");
                     
                     // Save to local uploaded keys
                     SaveUploadedKey(key);
-                    return true;
+                    return new KeyUploadResult { Success = true, Verified = signature != null };
                 }
                 else
                 {
                     var error = await response.Content.ReadAsStringAsync(ct);
                     Log($"Failed to upload key: {response.StatusCode} - {error}");
-                    return false;
+                    
+                    // Check if it's a signature verification failure
+                    if (error.Contains("signature") || error.Contains("verification"))
+                    {
+                        return new KeyUploadResult 
+                        { 
+                            Success = false, 
+                            Error = "Signature verification failed - do you have the correct private key?",
+                            NeedsPassword = error.Contains("password")
+                        };
+                    }
+                    
+                    return new KeyUploadResult { Success = false, Error = error };
                 }
             }
             catch (Exception ex)
             {
                 Log($"Error uploading key: {ex.Message}");
-                return false;
+                return new KeyUploadResult { Success = false, Error = ex.Message };
             }
+        }
+        
+        /// <summary>
+        /// Request a challenge from the server for proof of possession.
+        /// </summary>
+        private async Task<string?> RequestChallengeAsync(string fingerprint, CancellationToken ct)
+        {
+            try
+            {
+                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(_username!)}/challenge";
+                
+                var payload = JsonSerializer.Serialize(new { fingerprint }, _jsonOptions);
+                using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+                
+                using var response = await _httpClient.SendAsync(request, ct);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync(ct);
+                    var result = JsonSerializer.Deserialize<ChallengeResponse>(json, _jsonOptions);
+                    return result?.Challenge;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error requesting challenge: {ex.Message}");
+            }
+            
+            return null;
         }
 
         /// <summary>
@@ -525,6 +645,26 @@ namespace GridBanner
         
         [JsonPropertyName("keys")]
         public List<PublicKeyInfo> Keys { get; set; } = new();
+    }
+    
+    /// <summary>
+    /// Response from the challenge endpoint.
+    /// </summary>
+    public class ChallengeResponse
+    {
+        [JsonPropertyName("challenge")]
+        public string? Challenge { get; set; }
+    }
+    
+    /// <summary>
+    /// Result of a key upload attempt.
+    /// </summary>
+    public class KeyUploadResult
+    {
+        public bool Success { get; set; }
+        public bool Verified { get; set; }
+        public bool NeedsPassword { get; set; }
+        public string? Error { get; set; }
     }
 
     /// <summary>

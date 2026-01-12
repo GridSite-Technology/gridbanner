@@ -38,6 +38,9 @@ namespace GridBanner
             // Multi-site support: comma-separated list of site names (e.g., "HQ,Remote,Lab")
             // If not set, workstation receives all alerts (backward compatible)
             // { "site_name", "" }  // No default - leave empty/unset
+
+            // Tray-only mode: when enabled, banner is hidden unless an alert is active
+            { "tray_only", "0" },  // 0=show banner always, 1=hide banner (show only on alerts)
         };
 
         /// <summary>
@@ -191,7 +194,7 @@ namespace GridBanner
                 (string.IsNullOrWhiteSpace(oldHeight) || string.Equals(oldHeight, "60", StringComparison.OrdinalIgnoreCase));
 
             // If any non-default keys exist, assume user customized it
-            var allowedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                var allowedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "background_color",
                 "foreground_color",
@@ -201,7 +204,8 @@ namespace GridBanner
                 "compliance_check_enabled",
                 "compliance_status",
                 "compliance_check_command",
-                "keyring_enabled"
+                "keyring_enabled",
+                "tray_only"
             };
             var hasUnknownKeys = cfg.Keys.Any(k => !allowedKeys.Contains(k));
 
@@ -342,6 +346,12 @@ namespace GridBanner
                     {
                         toInsert.Add($"compliance_check_command = {DefaultConfig["compliance_check_command"]}");
                     }
+                }
+                if (!HasKey("tray_only"))
+                {
+                    toInsert.Add(string.Empty);
+                    toInsert.Add("; Tray-only mode: 1=hide banner (show only when alerts are active), 0=show banner always");
+                    toInsert.Add($"tray_only = {DefaultConfig["tray_only"]}");
                 }
 
                 if (toInsert.Count > 0)

@@ -11,6 +11,12 @@
         BorderBrush="#CCCCCC"
         BorderThickness="1">
     <StackPanel Margin="10">
+        <Button Name="ReloadConfigButton"
+                Content="Reload Config"
+                Width="150"
+                Height="35"
+                Margin="0,0,0,5"
+                Click="ReloadConfigButton_Click"/>
         <Button Name="TerminateButton"
                 Content="Terminate"
                 Width="150"

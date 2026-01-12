@@ -222,5 +222,13 @@ namespace GridBanner
             StopLoop();
             StopAudio();
         }
+        
+        public void Silence()
+        {
+            // Stop audio playback but keep the alert current
+            // This allows silencing without losing the alert state
+            StopLoop();
+            StopAudio();
+        }
     }
 }

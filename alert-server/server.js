@@ -2,9 +2,24 @@ const express = require('express');
 const fs = require('fs').promises;
 const path = require('path');
 const multer = require('multer');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Challenge store (in-memory, expires after 5 minutes)
+const pendingChallenges = new Map();
+const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
+// Clean up expired challenges periodically
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of pendingChallenges.entries()) {
+        if (now - value.timestamp > CHALLENGE_EXPIRY_MS) {
+            pendingChallenges.delete(key);
+        }
+    }
+}, 60 * 1000); // Clean every minute
 
 // Middleware
 app.use(express.json());
@@ -529,14 +544,79 @@ app.get('/api/keyring/:username', async (req, res) => {
     }
 });
 
-// Upload a public key (from GridBanner client)
+// Request a challenge for key ownership verification
+app.post('/api/keyring/:username/challenge', async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        const { fingerprint } = req.body;
+        
+        if (!fingerprint) {
+            return res.status(400).json({ error: 'fingerprint is required' });
+        }
+        
+        // Generate a random challenge (32 bytes, base64 encoded)
+        const challengeBytes = crypto.randomBytes(32);
+        const challenge = challengeBytes.toString('base64');
+        
+        // Store the challenge with username+fingerprint as key
+        const challengeKey = `${username}:${fingerprint}`;
+        pendingChallenges.set(challengeKey, {
+            challenge,
+            timestamp: Date.now()
+        });
+        
+        console.log(`Challenge generated for ${username} key ${fingerprint}: ${challenge.substring(0, 20)}...`);
+        
+        res.json({ challenge });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Upload a public key with proof of possession (from GridBanner client)
 app.post('/api/keyring/:username/keys', async (req, res) => {
     try {
         const username = decodeURIComponent(req.params.username);
-        const { key_type, key_data, key_name, fingerprint } = req.body;
+        const { key_type, key_data, key_name, fingerprint, challenge, signature } = req.body;
         
         if (!key_type || !key_data) {
             return res.status(400).json({ error: 'key_type and key_data are required' });
+        }
+        
+        // Verify proof of possession if challenge/signature provided
+        if (challenge && signature && fingerprint) {
+            const challengeKey = `${username}:${fingerprint}`;
+            const storedChallenge = pendingChallenges.get(challengeKey);
+            
+            if (!storedChallenge) {
+                return res.status(400).json({ error: 'No pending challenge found. Request a new challenge.' });
+            }
+            
+            // Check if challenge expired
+            if (Date.now() - storedChallenge.timestamp > CHALLENGE_EXPIRY_MS) {
+                pendingChallenges.delete(challengeKey);
+                return res.status(400).json({ error: 'Challenge expired. Request a new challenge.' });
+            }
+            
+            // Verify the challenge matches
+            if (storedChallenge.challenge !== challenge) {
+                return res.status(400).json({ error: 'Challenge mismatch.' });
+            }
+            
+            // Verify the signature using the public key
+            try {
+                const isValid = verifySSHSignature(key_data, challenge, signature);
+                if (!isValid) {
+                    return res.status(400).json({ error: 'Invalid signature. Proof of possession failed.' });
+                }
+                console.log(`Signature verified for ${username} key ${fingerprint}`);
+            } catch (verifyError) {
+                console.error('Signature verification error:', verifyError);
+                return res.status(400).json({ error: `Signature verification failed: ${verifyError.message}` });
+            }
+            
+            // Clean up the used challenge
+            pendingChallenges.delete(challengeKey);
         }
         
         const data = await loadData();
@@ -562,13 +642,14 @@ app.post('/api/keyring/:username/keys', async (req, res) => {
             return res.json({ success: true, message: 'Key already exists' });
         }
         
-        // Add new key
+        // Add new key (mark as verified if signature was provided)
         const newKey = {
             id: Date.now().toString(),
             key_type,
             key_data,
             key_name: key_name || `${key_type} key`,
             fingerprint: fingerprint || null,
+            verified: !!(challenge && signature),
             uploaded_at: new Date().toISOString()
         };
         
@@ -581,6 +662,165 @@ app.post('/api/keyring/:username/keys', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// Helper function to verify SSH signature
+function verifySSHSignature(publicKeyData, challenge, signatureBase64) {
+    // Parse the SSH public key format: "type base64data comment"
+    const parts = publicKeyData.trim().split(' ');
+    if (parts.length < 2) {
+        throw new Error('Invalid SSH public key format');
+    }
+    
+    const keyType = parts[0];
+    const keyDataBase64 = parts[1];
+    
+    // Convert challenge and signature
+    const challengeBuffer = Buffer.from(challenge, 'base64');
+    const signatureBuffer = Buffer.from(signatureBase64, 'base64');
+    
+    // Handle different key types
+    if (keyType === 'ssh-rsa') {
+        // Parse RSA public key from SSH format
+        const keyBuffer = Buffer.from(keyDataBase64, 'base64');
+        const pemKey = sshRsaToPem(keyBuffer);
+        
+        const verify = crypto.createVerify('SHA256');
+        verify.update(challengeBuffer);
+        return verify.verify(pemKey, signatureBuffer);
+    } else if (keyType === 'ssh-ed25519') {
+        // Ed25519 verification
+        const keyBuffer = Buffer.from(keyDataBase64, 'base64');
+        const publicKey = parseEd25519PublicKey(keyBuffer);
+        
+        // Use crypto.verify for Ed25519
+        return crypto.verify(null, challengeBuffer, {
+            key: publicKey,
+            format: 'der',
+            type: 'spki'
+        }, signatureBuffer);
+    } else if (keyType.startsWith('ecdsa-sha2-')) {
+        // ECDSA verification
+        const keyBuffer = Buffer.from(keyDataBase64, 'base64');
+        const pemKey = sshEcdsaToPem(keyBuffer, keyType);
+        
+        const verify = crypto.createVerify('SHA256');
+        verify.update(challengeBuffer);
+        return verify.verify(pemKey, signatureBuffer);
+    } else {
+        throw new Error(`Unsupported key type: ${keyType}`);
+    }
+}
+
+// Convert SSH RSA public key to PEM format
+function sshRsaToPem(keyBuffer) {
+    let offset = 0;
+    
+    // Read key type length and type
+    const typeLen = keyBuffer.readUInt32BE(offset);
+    offset += 4 + typeLen;
+    
+    // Read exponent
+    const eLen = keyBuffer.readUInt32BE(offset);
+    offset += 4;
+    const e = keyBuffer.slice(offset, offset + eLen);
+    offset += eLen;
+    
+    // Read modulus
+    const nLen = keyBuffer.readUInt32BE(offset);
+    offset += 4;
+    const n = keyBuffer.slice(offset, offset + nLen);
+    
+    // Create DER-encoded RSA public key
+    const rsaKey = crypto.createPublicKey({
+        key: {
+            kty: 'RSA',
+            n: n.toString('base64url'),
+            e: e.toString('base64url')
+        },
+        format: 'jwk'
+    });
+    
+    return rsaKey.export({ type: 'spki', format: 'pem' });
+}
+
+// Parse Ed25519 public key from SSH format to DER SPKI
+function parseEd25519PublicKey(keyBuffer) {
+    let offset = 0;
+    
+    // Read key type length and type
+    const typeLen = keyBuffer.readUInt32BE(offset);
+    offset += 4 + typeLen;
+    
+    // Read public key (32 bytes)
+    const pkLen = keyBuffer.readUInt32BE(offset);
+    offset += 4;
+    const publicKeyBytes = keyBuffer.slice(offset, offset + pkLen);
+    
+    // Create Ed25519 public key object
+    const key = crypto.createPublicKey({
+        key: {
+            kty: 'OKP',
+            crv: 'Ed25519',
+            x: publicKeyBytes.toString('base64url')
+        },
+        format: 'jwk'
+    });
+    
+    return key.export({ type: 'spki', format: 'der' });
+}
+
+// Convert SSH ECDSA public key to PEM format
+function sshEcdsaToPem(keyBuffer, keyType) {
+    let offset = 0;
+    
+    // Read key type
+    const typeLen = keyBuffer.readUInt32BE(offset);
+    offset += 4 + typeLen;
+    
+    // Read curve identifier
+    const curveLen = keyBuffer.readUInt32BE(offset);
+    offset += 4;
+    const curve = keyBuffer.slice(offset, offset + curveLen).toString();
+    offset += curveLen;
+    
+    // Read public key point
+    const pointLen = keyBuffer.readUInt32BE(offset);
+    offset += 4;
+    const point = keyBuffer.slice(offset, offset + pointLen);
+    
+    // Map curve names
+    const curveMap = {
+        'nistp256': 'P-256',
+        'nistp384': 'P-384',
+        'nistp521': 'P-521'
+    };
+    
+    const jwkCurve = curveMap[curve];
+    if (!jwkCurve) {
+        throw new Error(`Unsupported ECDSA curve: ${curve}`);
+    }
+    
+    // Parse the uncompressed point (0x04 + x + y)
+    if (point[0] !== 0x04) {
+        throw new Error('Expected uncompressed point format');
+    }
+    
+    const coordLen = (point.length - 1) / 2;
+    const x = point.slice(1, 1 + coordLen);
+    const y = point.slice(1 + coordLen);
+    
+    const key = crypto.createPublicKey({
+        key: {
+            kty: 'EC',
+            crv: jwkCurve,
+            x: x.toString('base64url'),
+            y: y.toString('base64url')
+        },
+        format: 'jwk'
+    });
+    
+    return key.export({ type: 'spki', format: 'pem' });
+}
 
 // Delete a public key (admin only)
 app.delete('/api/users/:username/keys/:keyId', authenticate, async (req, res) => {

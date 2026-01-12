@@ -38,6 +38,7 @@ namespace GridBanner
         }
         
         public event EventHandler? ManageKeysClicked;
+        public event EventHandler? ReloadConfigClicked;
 
         public BannerMenuWindow()
         {
@@ -205,6 +206,12 @@ SOFTWARE.";
         private void ManageKeysButton_Click(object sender, RoutedEventArgs e)
         {
             ManageKeysClicked?.Invoke(this, EventArgs.Empty);
+            Close();
+        }
+        
+        private void ReloadConfigButton_Click(object sender, RoutedEventArgs e)
+        {
+            ReloadConfigClicked?.Invoke(this, EventArgs.Empty);
             Close();
         }
         
