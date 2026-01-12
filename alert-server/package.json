@@ -9,7 +9,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "body-parser": "^1.20.2"
+    "body-parser": "^1.20.2",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.0.1"
   },
   "keywords": [
     "gridbanner",
@@ -19,4 +21,5 @@
   "author": "GridSite Technology",
   "license": "MIT"
 }
+
 

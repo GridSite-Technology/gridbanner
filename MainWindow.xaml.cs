@@ -23,6 +23,7 @@ namespace GridBanner
         private readonly List<SuperCriticalAlertWindow> _superCriticalWindows = new();
         private readonly AlertSoundPlayer _alertSoundPlayer = new();
         private readonly KeyringManager _keyringManager = new();
+        private AzureAuthManager? _azureAuthManager;
         private AlertManager? _alertManager;
         private System.Windows.Threading.DispatcherTimer? _connectivityTimer;
         private System.Windows.Threading.DispatcherTimer? _keyringCheckTimer;
@@ -728,9 +729,27 @@ namespace GridBanner
         {
             LogMessage($"Setting up keyring system for user: {username}");
             
+            // Setup Azure AD authentication if configured
+            var config = ConfigManager.LoadConfig();
+            var azureAuthEnabled = ParseInt(config.GetValueOrDefault("azure_auth_enabled", "0"), 0) == 1;
+            var azureClientId = config.GetValueOrDefault("azure_client_id", string.Empty).Trim();
+            var azureTenantId = config.GetValueOrDefault("azure_tenant_id", string.Empty).Trim();
+            var azureApiScope = config.GetValueOrDefault("azure_api_scope", string.Empty).Trim();
+            
+            if (azureAuthEnabled && !string.IsNullOrEmpty(azureClientId) && !string.IsNullOrEmpty(azureTenantId))
+            {
+                _azureAuthManager = new AzureAuthManager(azureClientId, azureTenantId, azureApiScope, true);
+                _azureAuthManager.LogMessage += (_, message) => LogMessage($"Azure Auth: {message}");
+                LogMessage("Azure AD authentication enabled");
+            }
+            else
+            {
+                LogMessage("Azure AD authentication disabled or not configured");
+            }
+            
             // Configure keyring manager
             _keyringManager.LogMessage += (_, message) => LogMessage($"Keyring: {message}");
-            _keyringManager.Configure(alertUrl, username, true);
+            _keyringManager.Configure(alertUrl, username, true, _azureAuthManager);
             
             // Initial key check
             _ = CheckForNewKeysAsync();

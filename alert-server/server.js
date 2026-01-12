@@ -3,6 +3,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const multer = require('multer');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,7 +31,7 @@ app.use(express.static('public'));
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, Authorization');
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -46,6 +48,109 @@ async function loadConfig() {
         console.error('Error loading config:', error);
         config = { admin_key: 'adminkey' };
     }
+}
+
+// Azure AD configuration
+const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || config?.azure_tenant_id;
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || config?.azure_client_id;
+const AZURE_AUTH_ENABLED = (process.env.AZURE_AUTH_ENABLED === 'true' || config?.azure_auth_enabled === true) && AZURE_TENANT_ID && AZURE_CLIENT_ID;
+
+// Azure AD token validation setup
+let azureJwksClient = null;
+if (AZURE_AUTH_ENABLED) {
+    const JWKS_URI = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/discovery/v2.0/keys`;
+    azureJwksClient = jwksClient({
+        jwksUri: JWKS_URI,
+        requestHeaders: {},
+        timeout: 30000
+    });
+    console.log('Azure AD authentication enabled');
+} else {
+    console.log('Azure AD authentication disabled');
+}
+
+// Function to get signing key for JWT verification
+function getAzureSigningKey(header, callback) {
+    if (!azureJwksClient) {
+        return callback(new Error('Azure AD not configured'));
+    }
+    azureJwksClient.getSigningKey(header.kid, (err, key) => {
+        if (err) {
+            return callback(err);
+        }
+        const signingKey = key.publicKey || key.rsaPublicKey;
+        callback(null, signingKey);
+    });
+}
+
+// Middleware to validate Azure AD tokens (optional if auth is enabled)
+function validateAzureToken(req, res, next) {
+    // If Azure AD is disabled, skip validation
+    if (!AZURE_AUTH_ENABLED) {
+        return next();
+    }
+    
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header. Azure AD authentication required.' });
+    }
+    
+    const token = authHeader.substring(7);
+    
+    const options = {
+        audience: `api://${AZURE_CLIENT_ID}`,
+        issuer: `https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0`,
+        algorithms: ['RS256']
+    };
+    
+    jwt.verify(token, getAzureSigningKey, options, (err, decoded) => {
+        if (err) {
+            console.error('Token validation error:', err);
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        
+        // Attach user info to request
+        req.azureUser = {
+            upn: decoded.upn || decoded.preferred_username,
+            email: decoded.email,
+            oid: decoded.oid, // Object ID (unique user identifier)
+            name: decoded.name
+        };
+        
+        console.log(`Token validated for user: ${req.azureUser.upn} (OID: ${req.azureUser.oid})`);
+        next();
+    });
+}
+
+// Middleware to verify user matches request
+function verifyUserMatch(req, res, next) {
+    // If Azure AD is disabled, skip verification
+    if (!AZURE_AUTH_ENABLED || !req.azureUser) {
+        return next();
+    }
+    
+    const requestedUsername = decodeURIComponent(req.params.username);
+    const authenticatedUser = req.azureUser.upn || req.azureUser.email;
+    
+    if (!authenticatedUser) {
+        return res.status(401).json({ error: 'Unable to determine authenticated user identity' });
+    }
+    
+    // Normalize usernames (handle email vs UPN)
+    const normalizedRequested = requestedUsername.toLowerCase().trim();
+    const normalizedAuthenticated = authenticatedUser.toLowerCase().trim();
+    
+    if (normalizedRequested !== normalizedAuthenticated) {
+        console.warn(`User mismatch: requested=${requestedUsername}, authenticated=${authenticatedUser}`);
+        return res.status(403).json({ 
+            error: 'Forbidden: You can only manage your own keys',
+            requested: requestedUsername,
+            authenticated: authenticatedUser
+        });
+    }
+    
+    next();
 }
 
 // File paths
@@ -118,6 +223,54 @@ function authenticate(req, res, next) {
 // Health check (no auth required)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Get alert server URL for organization (public endpoint, returns configured URL)
+app.get('/api/alert-server-url', async (req, res) => {
+    try {
+        const data = await loadData();
+        const alertServerUrl = data.settings?.alert_server_url || null;
+        res.json({ 
+            alert_server_url: alertServerUrl,
+            configured: alertServerUrl !== null
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Set alert server URL (admin only)
+app.post('/api/admin/alert-server-url', authenticate, async (req, res) => {
+    try {
+        const { alert_server_url } = req.body;
+        
+        if (!alert_server_url || typeof alert_server_url !== 'string') {
+            return res.status(400).json({ error: 'alert_server_url is required and must be a string' });
+        }
+        
+        // Validate URL format
+        try {
+            new URL(alert_server_url);
+        } catch {
+            return res.status(400).json({ error: 'Invalid URL format' });
+        }
+        
+        const data = await loadData();
+        if (!data.settings) {
+            data.settings = {};
+        }
+        data.settings.alert_server_url = alert_server_url;
+        await saveData(data);
+        
+        console.log(`Alert server URL updated to: ${alert_server_url}`);
+        res.json({ 
+            success: true, 
+            alert_server_url: alert_server_url,
+            message: 'Alert server URL updated successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Alert endpoints
@@ -523,10 +676,14 @@ app.get('/api/users/:username/keys', authenticate, async (req, res) => {
     }
 });
 
-// Get all public keys for a user (no auth - for GridBanner clients to sync)
-app.get('/api/keyring/:username', async (req, res) => {
+// Get all public keys for a user
+app.get('/api/keyring/:username', 
+    validateAzureToken,      // Validate Azure AD token if enabled
+    verifyUserMatch,         // Ensure user matches username in URL
+    async (req, res) => {
     try {
-        const username = decodeURIComponent(req.params.username);
+        // Use authenticated user if available, otherwise fall back to URL param
+        const username = req.azureUser?.upn || req.azureUser?.email || decodeURIComponent(req.params.username);
         const data = await loadData();
         const users = data.users || {};
         const user = users[username];
@@ -545,9 +702,12 @@ app.get('/api/keyring/:username', async (req, res) => {
 });
 
 // Request a challenge for key ownership verification
-app.post('/api/keyring/:username/challenge', async (req, res) => {
+app.post('/api/keyring/:username/challenge', 
+    validateAzureToken,      // Validate Azure AD token if enabled (optional)
+    async (req, res) => {
     try {
-        const username = decodeURIComponent(req.params.username);
+        // Use authenticated user if available, otherwise fall back to URL param
+        const username = req.azureUser?.upn || req.azureUser?.email || decodeURIComponent(req.params.username);
         const { fingerprint } = req.body;
         
         if (!fingerprint) {
@@ -574,49 +734,71 @@ app.post('/api/keyring/:username/challenge', async (req, res) => {
 });
 
 // Upload a public key with proof of possession (from GridBanner client)
-app.post('/api/keyring/:username/keys', async (req, res) => {
+app.post('/api/keyring/:username/keys', 
+    validateAzureToken,      // Validate Azure AD token if enabled
+    verifyUserMatch,         // Ensure user matches username in URL
+    async (req, res) => {
     try {
-        const username = decodeURIComponent(req.params.username);
+        console.log(`[KEYRING] Upload request received for user: ${req.params.username}`);
+        console.log(`[KEYRING] Authenticated user: ${req.azureUser?.upn || req.azureUser?.email || 'none'}`);
+        
+        // Use authenticated user if available, otherwise fall back to URL param
+        const username = req.azureUser?.upn || req.azureUser?.email || decodeURIComponent(req.params.username);
         const { key_type, key_data, key_name, fingerprint, challenge, signature } = req.body;
         
+        console.log(`[KEYRING] Key upload request: type=${key_type}, name=${key_name}, fingerprint=${fingerprint?.substring(0, 20)}..., hasChallenge=${!!challenge}, hasSignature=${!!signature}`);
+        
         if (!key_type || !key_data) {
+            console.log(`[KEYRING] Missing required fields: key_type=${!!key_type}, key_data=${!!key_data}`);
             return res.status(400).json({ error: 'key_type and key_data are required' });
         }
         
         // Verify proof of possession if challenge/signature provided
         if (challenge && signature && fingerprint) {
+            console.log(`[KEYRING] Verifying proof of possession for key ${fingerprint.substring(0, 20)}...`);
             const challengeKey = `${username}:${fingerprint}`;
             const storedChallenge = pendingChallenges.get(challengeKey);
             
             if (!storedChallenge) {
+                console.log(`[KEYRING] No pending challenge found for ${challengeKey}`);
                 return res.status(400).json({ error: 'No pending challenge found. Request a new challenge.' });
             }
             
             // Check if challenge expired
             if (Date.now() - storedChallenge.timestamp > CHALLENGE_EXPIRY_MS) {
+                console.log(`[KEYRING] Challenge expired for ${challengeKey}`);
                 pendingChallenges.delete(challengeKey);
                 return res.status(400).json({ error: 'Challenge expired. Request a new challenge.' });
             }
             
             // Verify the challenge matches
             if (storedChallenge.challenge !== challenge) {
+                console.log(`[KEYRING] Challenge mismatch for ${challengeKey}`);
                 return res.status(400).json({ error: 'Challenge mismatch.' });
             }
             
             // Verify the signature using the public key
             try {
+                console.log(`[KEYRING] Verifying signature...`);
+                const verifyStartTime = Date.now();
                 const isValid = verifySSHSignature(key_data, challenge, signature);
+                const verifyDuration = Date.now() - verifyStartTime;
+                console.log(`[KEYRING] Signature verification ${isValid ? 'PASSED' : 'FAILED'} in ${verifyDuration}ms`);
+                
                 if (!isValid) {
                     return res.status(400).json({ error: 'Invalid signature. Proof of possession failed.' });
                 }
-                console.log(`Signature verified for ${username} key ${fingerprint}`);
+                console.log(`[KEYRING] Signature verified for ${username} key ${fingerprint.substring(0, 20)}...`);
             } catch (verifyError) {
-                console.error('Signature verification error:', verifyError);
+                console.error(`[KEYRING] Signature verification error:`, verifyError);
                 return res.status(400).json({ error: `Signature verification failed: ${verifyError.message}` });
             }
             
             // Clean up the used challenge
             pendingChallenges.delete(challengeKey);
+            console.log(`[KEYRING] Challenge cleaned up for ${challengeKey}`);
+        } else {
+            console.log(`[KEYRING] No challenge/signature provided - uploading without verification`);
         }
         
         const data = await loadData();
@@ -657,7 +839,42 @@ app.post('/api/keyring/:username/keys', async (req, res) => {
         data.users[username].last_seen = new Date().toISOString();
         
         await saveData(data);
+        console.log(`[KEYRING] Key ${key_name} (${fingerprint?.substring(0, 20)}...) successfully uploaded for ${username}`);
         res.json({ success: true, key: newKey });
+    } catch (error) {
+        console.error(`[KEYRING] Error uploading key:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a public key (authenticated users only)
+app.delete('/api/keyring/:username/keys/:keyId',
+    validateAzureToken,      // Validate Azure AD token if enabled
+    verifyUserMatch,         // Ensure user matches username in URL
+    async (req, res) => {
+    try {
+        // Use authenticated user if available, otherwise fall back to URL param
+        const username = req.azureUser?.upn || req.azureUser?.email || decodeURIComponent(req.params.username);
+        const keyId = req.params.keyId;
+        
+        const data = await loadData();
+        if (!data.users || !data.users[username]) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const keys = data.users[username].public_keys || [];
+        const keyIndex = keys.findIndex(k => k.id === keyId);
+        
+        if (keyIndex === -1) {
+            return res.status(404).json({ error: 'Key not found' });
+        }
+        
+        const deletedKey = keys[keyIndex];
+        keys.splice(keyIndex, 1);
+        await saveData(data);
+        
+        console.log(`Key ${keyId} deleted for user ${username}`);
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

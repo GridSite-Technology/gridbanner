@@ -72,3 +72,4 @@ const iconHtml = `<!DOCTYPE html>
 fs.writeFileSync(path.join(__dirname, 'generate-icons.html'), iconHtml);
 console.log('Created generate-icons.html - open in browser and screenshot to create icons');
 
+

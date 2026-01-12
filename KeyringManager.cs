@@ -57,6 +57,7 @@ namespace GridBanner
         private string? _baseUrl;
         private string? _username;
         private bool _enabled;
+        private AzureAuthManager? _authManager;
         
         // Local storage paths
         private static readonly string UserDataPath = Path.Combine(
@@ -87,16 +88,17 @@ namespace GridBanner
 
         public KeyringManager()
         {
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) }; // Increased timeout for key operations
         }
 
         /// <summary>
         /// Configure the keyring manager with the alert server URL and username.
         /// </summary>
-        public void Configure(string? alertUrl, string? username, bool enabled)
+        public void Configure(string? alertUrl, string? username, bool enabled, AzureAuthManager? authManager = null)
         {
             _enabled = enabled;
             _username = username;
+            _authManager = authManager;
             
             if (!string.IsNullOrEmpty(alertUrl))
             {
@@ -105,7 +107,27 @@ namespace GridBanner
                 _baseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
             }
             
-            Log($"Keyring configured: enabled={enabled}, username={username}, baseUrl={_baseUrl}");
+            Log($"Keyring configured: enabled={enabled}, username={username}, baseUrl={_baseUrl}, azureAuth={(_authManager?.IsEnabled ?? false)}");
+        }
+        
+        /// <summary>
+        /// Get the effective username to use for API calls.
+        /// Uses Azure AD UPN/email if available, otherwise falls back to configured username.
+        /// </summary>
+        private string GetEffectiveUsername()
+        {
+            // If Azure AD is enabled and authenticated, use the Azure AD identity
+            if (_authManager != null && _authManager.IsEnabled)
+            {
+                var upn = _authManager.GetUserPrincipalName();
+                if (!string.IsNullOrEmpty(upn))
+                {
+                    return upn;
+                }
+            }
+            
+            // Fall back to configured username
+            return _username ?? string.Empty;
         }
 
         /// <summary>
@@ -357,34 +379,179 @@ namespace GridBanner
                     }
                     
                     // Request a challenge
+                    Log($"Requesting challenge for key {key.Fingerprint}...");
                     challenge = await RequestChallengeAsync(key.Fingerprint, ct);
                     if (string.IsNullOrEmpty(challenge))
                     {
                         Log("Failed to get challenge from server.");
                         return new KeyUploadResult { Success = false, Error = "Failed to get challenge from server" };
                     }
+                    Log($"Challenge received successfully.");
                     
                     Log($"Received challenge, signing with private key...");
+                    Log($"Challenge length: {(challenge != null ? challenge.Length : 0)} characters");
                     
-                    // Sign the challenge
+                    // Sign the challenge on a background thread with timeout
                     try
                     {
-                        signature = SshKeySigner.SignChallenge(keyPath, challenge, password);
-                        Log($"Challenge signed successfully.");
+                        Log($"=== Starting signature process ===");
+                        Log($"Attempting to sign challenge with key at: {keyPath}");
+                        Log($"Password provided: {(!string.IsNullOrEmpty(password) ? "Yes (length: " + password.Length + ")" : "No")}");
+                        if (challenge != null)
+                        {
+                            Log($"Challenge to sign: {challenge.Substring(0, Math.Min(20, challenge.Length))}...");
+                        }
+                        
+                        // Run signing on background thread with timeout
+                        var signStartTime = DateTime.Now;
+                        using var signCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        signCts.CancelAfter(TimeSpan.FromSeconds(60)); // 60 second timeout for signing
+                        
+                        Log($"Starting signing operation (timeout: 60s)...");
+                        
+                        // Set up logging for SshKeySigner
+                        SshKeySigner.LogDelegate = (msg) => Log($"SshKeySigner: {msg}");
+                        
+                        signature = await Task.Run(() => 
+                        {
+                            try
+                            {
+                                Log($"[Background Thread] Calling SshKeySigner.SignChallenge...");
+                                var result = SshKeySigner.SignChallenge(keyPath, challenge!, password);
+                                Log($"[Background Thread] SshKeySigner.SignChallenge completed.");
+                                return result;
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"[Background Thread] Error in SignChallenge: {ex.Message}");
+                                Log($"[Background Thread] Stack trace: {ex.StackTrace}");
+                                throw;
+                            }
+                            finally
+                            {
+                                // Clear logging delegate
+                                SshKeySigner.LogDelegate = null;
+                            }
+                        }, signCts.Token);
+                        
+                        var signDuration = DateTime.Now - signStartTime;
+                        
+                        Log($"Challenge signed successfully in {signDuration.TotalMilliseconds:F0}ms.");
+                        Log($"Signature length: {signature?.Length ?? 0} characters");
+                        Log($"=== Signature process completed ===");
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        Log("Signature process timed out after 60 seconds.");
+                        return new KeyUploadResult 
+                        { 
+                            Success = false, 
+                            Error = "Signing timed out. The key decryption is taking too long. Please try again.",
+                            NeedsPassword = false
+                        };
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Log("Signature process was cancelled.");
+                        return new KeyUploadResult 
+                        { 
+                            Success = false, 
+                            Error = "Signing was cancelled.",
+                            NeedsPassword = false
+                        };
+                    }
+                    catch (System.Security.Cryptography.CryptographicException cryptEx)
+                    {
+                        // Check for password-related errors
+                        var errorMsg = cryptEx.Message;
+                        Log($"CryptographicException caught: {errorMsg}");
+                        Log($"Exception type: {cryptEx.GetType().Name}");
+                        if (cryptEx.InnerException != null)
+                        {
+                            Log($"Inner exception: {cryptEx.InnerException.Message}");
+                        }
+                        
+                        // Check for specific password error patterns
+                        var isWrongPassword = errorMsg.Contains("check values don't match", StringComparison.OrdinalIgnoreCase) ||
+                                           errorMsg.Contains("Wrong password", StringComparison.OrdinalIgnoreCase);
+                        var isPasswordNeeded = errorMsg.Contains("password", StringComparison.OrdinalIgnoreCase) || 
+                                             errorMsg.Contains("decrypt", StringComparison.OrdinalIgnoreCase);
+                        
+                        Log($"isWrongPassword: {isWrongPassword}, isPasswordNeeded: {isPasswordNeeded}, password provided: {!string.IsNullOrEmpty(password)}");
+                        
+                        if (isWrongPassword && !string.IsNullOrEmpty(password))
+                        {
+                            // Password was provided but wrong
+                            Log("Password provided but incorrect (check values don't match)");
+                            return new KeyUploadResult 
+                            { 
+                                Success = false, 
+                                Error = "Incorrect password. Please try again.",
+                                NeedsPassword = true
+                            };
+                        }
+                        else if (isPasswordNeeded && string.IsNullOrEmpty(password))
+                        {
+                            // Password needed but not provided
+                            Log("Password required but not provided");
+                            return new KeyUploadResult 
+                            { 
+                                Success = false, 
+                                Error = "Private key is password protected",
+                                NeedsPassword = true
+                            };
+                        }
+                        else if (isPasswordNeeded && !string.IsNullOrEmpty(password))
+                        {
+                            // Password provided but might be wrong (generic decrypt error)
+                            Log("Password provided but decryption failed - may be incorrect");
+                            return new KeyUploadResult 
+                            { 
+                                Success = false, 
+                                Error = "Incorrect password. Please try again.",
+                                NeedsPassword = true
+                            };
+                        }
+                        else
+                        {
+                            // Other cryptographic error
+                            Log($"Other cryptographic error: {errorMsg}");
+                            return new KeyUploadResult 
+                            { 
+                                Success = false, 
+                                Error = $"Failed to sign challenge: {errorMsg}",
+                                NeedsPassword = false
+                            };
+                        }
                     }
                     catch (Exception signEx)
                     {
                         Log($"Failed to sign challenge: {signEx.Message}");
+                        var errorMsg = signEx.Message;
+                        var isPasswordError = errorMsg.Contains("password", StringComparison.OrdinalIgnoreCase) || 
+                                            errorMsg.Contains("decrypt", StringComparison.OrdinalIgnoreCase);
+                        
                         return new KeyUploadResult 
                         { 
                             Success = false, 
-                            Error = $"Failed to sign challenge: {signEx.Message}",
-                            NeedsPassword = signEx.Message.Contains("password") || signEx.Message.Contains("decrypt")
+                            Error = $"Failed to sign challenge: {errorMsg}",
+                            NeedsPassword = isPasswordError
                         };
                     }
                 }
                 
-                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(_username)}/keys";
+                // Ensure authenticated if Azure AD is enabled
+                if (_authManager != null && _authManager.IsEnabled)
+                {
+                    if (!await _authManager.EnsureAuthenticatedAsync())
+                    {
+                        Log("Azure AD authentication required but failed.");
+                        return new KeyUploadResult { Success = false, Error = "Authentication required" };
+                    }
+                }
+                
+                var effectiveUsername = GetEffectiveUsername();
+                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(effectiveUsername)}/keys";
                 Log($"Uploading key to: {url}");
                 
                 var payload = JsonSerializer.Serialize(new
@@ -400,33 +567,73 @@ namespace GridBanner
                 using var request = new HttpRequestMessage(HttpMethod.Post, url);
                 request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
                 
-                using var response = await _httpClient.SendAsync(request, ct);
-                
-                if (response.IsSuccessStatusCode)
+                // Add Azure AD token if available
+                if (_authManager != null && _authManager.IsEnabled)
                 {
-                    Log($"Key {key.KeyName} uploaded successfully (verified: {signature != null}).");
-                    
-                    // Save to local uploaded keys
-                    SaveUploadedKey(key);
-                    return new KeyUploadResult { Success = true, Verified = signature != null };
-                }
-                else
-                {
-                    var error = await response.Content.ReadAsStringAsync(ct);
-                    Log($"Failed to upload key: {response.StatusCode} - {error}");
-                    
-                    // Check if it's a signature verification failure
-                    if (error.Contains("signature") || error.Contains("verification"))
+                    var token = _authManager.GetAccessToken();
+                    if (!string.IsNullOrEmpty(token))
                     {
-                        return new KeyUploadResult 
-                        { 
-                            Success = false, 
-                            Error = "Signature verification failed - do you have the correct private key?",
-                            NeedsPassword = error.Contains("password")
-                        };
+                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                        Log("Added Azure AD bearer token to request.");
                     }
+                }
+                
+                Log($"=== Starting HTTP upload request ===");
+                Log($"Request URL: {url}");
+                Log($"Request method: POST");
+                Log($"Payload size: {payload.Length} bytes");
+                Log($"Has challenge: {!string.IsNullOrEmpty(challenge)}");
+                Log($"Has signature: {!string.IsNullOrEmpty(signature)}");
+                
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(30)); // 30 second timeout for upload
+                
+                try
+                {
+                    Log($"Sending HTTP request (timeout: 30s)...");
+                    var requestStartTime = DateTime.Now;
+                    using var response = await _httpClient.SendAsync(request, cts.Token);
+                    var requestDuration = DateTime.Now - requestStartTime;
+                    Log($"HTTP request completed in {requestDuration.TotalMilliseconds:F0}ms");
                     
-                    return new KeyUploadResult { Success = false, Error = error };
+                    Log($"Server responded with status: {response.StatusCode}");
+                    
+                    if (response.IsSuccessStatusCode)
+                    {
+                        Log($"Key {key.KeyName} uploaded successfully (verified: {signature != null}).");
+                        
+                        // Save to local uploaded keys
+                        SaveUploadedKey(key);
+                        return new KeyUploadResult { Success = true, Verified = signature != null };
+                    }
+                    else
+                    {
+                        var error = await response.Content.ReadAsStringAsync(cts.Token);
+                        Log($"Failed to upload key: {response.StatusCode} - {error}");
+                        
+                        // Check if it's a signature verification failure
+                        if (error.Contains("signature") || error.Contains("verification"))
+                        {
+                            return new KeyUploadResult 
+                            { 
+                                Success = false, 
+                                Error = "Signature verification failed - do you have the correct private key?",
+                                NeedsPassword = error.Contains("password")
+                            };
+                        }
+                        
+                        return new KeyUploadResult { Success = false, Error = error };
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    Log("Upload request timed out after 30 seconds.");
+                    return new KeyUploadResult { Success = false, Error = "Upload timed out. Please check your network connection and try again." };
+                }
+                catch (OperationCanceledException)
+                {
+                    Log("Upload request was cancelled.");
+                    return new KeyUploadResult { Success = false, Error = "Upload was cancelled." };
                 }
             }
             catch (Exception ex)
@@ -443,24 +650,61 @@ namespace GridBanner
         {
             try
             {
-                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(_username!)}/challenge";
+                var effectiveUsername = GetEffectiveUsername();
+                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(effectiveUsername)}/challenge";
+                Log($"Requesting challenge from: {url}");
                 
                 var payload = JsonSerializer.Serialize(new { fingerprint }, _jsonOptions);
                 using var request = new HttpRequestMessage(HttpMethod.Post, url);
                 request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
                 
-                using var response = await _httpClient.SendAsync(request, ct);
-                
-                if (response.IsSuccessStatusCode)
+                // Add Azure AD token if available
+                if (_authManager != null && _authManager.IsEnabled)
                 {
-                    var json = await response.Content.ReadAsStringAsync(ct);
-                    var result = JsonSerializer.Deserialize<ChallengeResponse>(json, _jsonOptions);
-                    return result?.Challenge;
+                    var token = _authManager.GetAccessToken();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                        Log("Added Azure AD bearer token to challenge request.");
+                    }
+                }
+                
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(15)); // 15 second timeout for challenge
+                
+                try
+                {
+                    using var response = await _httpClient.SendAsync(request, cts.Token);
+                    Log($"Challenge request responded with status: {response.StatusCode}");
+                    
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync(cts.Token);
+                        var result = JsonSerializer.Deserialize<ChallengeResponse>(json, _jsonOptions);
+                        Log($"Challenge received successfully.");
+                        return result?.Challenge;
+                    }
+                    else
+                    {
+                        var error = await response.Content.ReadAsStringAsync(cts.Token);
+                        Log($"Challenge request failed: {response.StatusCode} - {error}");
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    Log("Challenge request timed out after 15 seconds.");
+                    return null;
+                }
+                catch (OperationCanceledException)
+                {
+                    Log("Challenge request was cancelled.");
+                    return null;
                 }
             }
             catch (Exception ex)
             {
                 Log($"Error requesting challenge: {ex.Message}");
+                Log($"Stack trace: {ex.StackTrace}");
             }
             
             return null;
@@ -521,8 +765,31 @@ namespace GridBanner
 
             try
             {
-                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(_username)}";
-                using var response = await _httpClient.GetAsync(url, ct);
+                // Ensure authenticated if Azure AD is enabled
+                if (_authManager != null && _authManager.IsEnabled)
+                {
+                    if (!await _authManager.EnsureAuthenticatedAsync())
+                    {
+                        Log("Azure AD authentication required but failed.");
+                        return new List<PublicKeyInfo>();
+                    }
+                }
+                
+                var effectiveUsername = GetEffectiveUsername();
+                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(effectiveUsername)}";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                
+                // Add Azure AD token if available
+                if (_authManager != null && _authManager.IsEnabled)
+                {
+                    var token = _authManager.GetAccessToken();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                    }
+                }
+                
+                using var response = await _httpClient.SendAsync(request, ct);
                 
                 if (response.IsSuccessStatusCode)
                 {
@@ -537,6 +804,66 @@ namespace GridBanner
             }
             
             return new List<PublicKeyInfo>();
+        }
+        
+        /// <summary>
+        /// Delete a key from the server.
+        /// </summary>
+        public async Task<bool> DeleteKeyAsync(string keyId, CancellationToken ct = default)
+        {
+            if (!_enabled || string.IsNullOrEmpty(_baseUrl))
+            {
+                return false;
+            }
+
+            try
+            {
+                // Ensure authenticated if Azure AD is enabled
+                if (_authManager != null && _authManager.IsEnabled)
+                {
+                    if (!await _authManager.EnsureAuthenticatedAsync())
+                    {
+                        Log("Azure AD authentication required but failed.");
+                        return false;
+                    }
+                }
+                
+                var effectiveUsername = GetEffectiveUsername();
+                var url = $"{_baseUrl}/api/keyring/{Uri.EscapeDataString(effectiveUsername)}/keys/{Uri.EscapeDataString(keyId)}";
+                Log($"Deleting key from: {url}");
+                
+                using var request = new HttpRequestMessage(HttpMethod.Delete, url);
+                
+                // Add Azure AD token if available
+                if (_authManager != null && _authManager.IsEnabled)
+                {
+                    var token = _authManager.GetAccessToken();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                        Log("Added Azure AD bearer token to delete request.");
+                    }
+                }
+                
+                using var response = await _httpClient.SendAsync(request, ct);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    Log($"Key {keyId} deleted successfully.");
+                    return true;
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync(ct);
+                    Log($"Failed to delete key: {response.StatusCode} - {error}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error deleting key: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>

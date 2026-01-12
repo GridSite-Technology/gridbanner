@@ -154,10 +154,21 @@ namespace GridBanner
                 var (isCompliant, complianceReason) = KeyDisplayItem.EvaluateCompliance(key);
                 var passwordNote = key.IsPasswordProtected ? " 🔒" : "";
                 
+                // Check if this key exists on the server (by fingerprint)
+                var serverFingerprints = _currentSummary.ServerKeys
+                    .Where(k => !string.IsNullOrEmpty(k.Fingerprint))
+                    .Select(k => k.Fingerprint!)
+                    .ToHashSet();
+                
+                var isOnServer = !string.IsNullOrEmpty(key.Fingerprint) && 
+                                serverFingerprints.Contains(key.Fingerprint);
+                
                 // Only show "Ready to upload" if compliant
                 string statusText;
                 Brush statusColor;
                 Visibility actionVis;
+                string syncStatus;
+                Brush syncStatusColor;
                 
                 if (isCompliant)
                 {
@@ -166,12 +177,26 @@ namespace GridBanner
                         : "⬆ Ready to upload";
                     statusColor = Brushes.DodgerBlue;
                     actionVis = Visibility.Visible;
+                    
+                    // Set sync status based on server check
+                    if (isOnServer)
+                    {
+                        syncStatus = "SYNCED";
+                        syncStatusColor = Brushes.Green;
+                    }
+                    else
+                    {
+                        syncStatus = "NOT SYNCED";
+                        syncStatusColor = Brushes.OrangeRed;
+                    }
                 }
                 else
                 {
                     statusText = "⚠ Not compliant - cannot upload";
                     statusColor = Brushes.OrangeRed;
                     actionVis = Visibility.Collapsed;
+                    syncStatus = "N/A";
+                    syncStatusColor = Brushes.Gray;
                 }
                 
                 localItems.Add(new KeyDisplayItem
@@ -188,8 +213,8 @@ namespace GridBanner
                     IsCompliant = isCompliant,
                     ComplianceText = complianceReason,
                     ComplianceColor = isCompliant ? Brushes.Green : Brushes.OrangeRed,
-                    SyncStatus = "UNKNOWN",
-                    SyncStatusColor = Brushes.Gray
+                    SyncStatus = syncStatus,
+                    SyncStatusColor = syncStatusColor
                 });
             }
             
@@ -236,21 +261,46 @@ namespace GridBanner
         {
             if (sender is System.Windows.Controls.Button button && button.Tag is KeyDisplayItem item && item.OriginalKey != null)
             {
-                await UploadKeyWithPasswordPromptAsync(item);
+                // Reset retry count when user manually clicks upload
+                await UploadKeyWithPasswordPromptAsync(item, null, 0, button);
             }
         }
         
-        private async Task UploadKeyWithPasswordPromptAsync(KeyDisplayItem item, string? password = null)
+        private async Task UploadKeyWithPasswordPromptAsync(KeyDisplayItem item, string? password = null, int retryCount = 0, System.Windows.Controls.Button? senderButton = null)
         {
             if (item.OriginalKey == null) return;
             
+            // Prevent infinite password loops
+            const int maxPasswordRetries = 3;
+            if (retryCount >= maxPasswordRetries)
+            {
+                MessageBox.Show(
+                    $"Too many failed password attempts for key '{item.KeyName}'. Please try again later.",
+                    "Too Many Attempts",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+            
             try
             {
+                // Show progress indicator (disable button, show status)
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    if (senderButton != null)
+                    {
+                        senderButton.IsEnabled = false;
+                        senderButton.Content = "Uploading...";
+                    }
+                });
+                
                 // Upload the key with proof of possession
+                Log($"Starting upload for key: {item.KeyName}");
                 var result = await _keyringManager.UploadKeyAsync(
                     item.OriginalKey, 
                     item.OriginalKey.SourcePath,
                     password);
+                Log($"Upload completed. Success: {result.Success}, Error: {result.Error}");
                 
                 if (result.Success)
                 {
@@ -264,12 +314,29 @@ namespace GridBanner
                 }
                 else if (result.NeedsPassword)
                 {
+                    // Check if this is a retry after a wrong password
+                    bool isWrongPassword = !string.IsNullOrEmpty(password) && 
+                                         result.Error != null &&
+                                         (result.Error.Contains("Wrong password") || 
+                                          result.Error.Contains("decryption failed") ||
+                                          result.Error.Contains("check values don't match"));
+                    
+                    // Show error if password was wrong
+                    if (isWrongPassword)
+                    {
+                        MessageBox.Show(
+                            $"The password you entered is incorrect.\n\nPlease try again.",
+                            "Incorrect Password",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                    }
+                    
                     // Prompt for password
                     var passwordDialog = new PasswordPromptWindow(item.KeyName ?? "SSH Key");
                     if (passwordDialog.ShowDialog() == true && !string.IsNullOrEmpty(passwordDialog.Password))
                     {
-                        // Retry with password
-                        await UploadKeyWithPasswordPromptAsync(item, passwordDialog.Password);
+                        // Retry with new password
+                        await UploadKeyWithPasswordPromptAsync(item, passwordDialog.Password, retryCount + 1, senderButton);
                     }
                 }
                 else
@@ -288,10 +355,43 @@ namespace GridBanner
                     }
                 }
             }
+            catch (TaskCanceledException ex)
+            {
+                Log($"Upload was cancelled or timed out: {ex.Message}");
+                MessageBox.Show(
+                    "Upload timed out. Please check your network connection and try again.",
+                    "Upload Timeout",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log($"Error during upload: {ex.Message}");
+                Log($"Stack trace: {ex.StackTrace}");
+                MessageBox.Show(
+                    $"Error uploading key: {ex.Message}\n\nPlease check the logs for more details.",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
+            finally
+            {
+                // Re-enable button
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    if (senderButton != null)
+                    {
+                        senderButton.IsEnabled = true;
+                        senderButton.Content = "Upload";
+                    }
+                });
+            }
+        }
+        
+        private void Log(string message)
+        {
+            // Forward to KeyringManager's logging
+            System.Diagnostics.Debug.WriteLine($"[ManageKeysWindow] {message}");
         }
 
         private async void UnignoreKey_Click(object sender, RoutedEventArgs e)
@@ -302,6 +402,63 @@ namespace GridBanner
                 {
                     _keyringManager.UnignoreKey(item.OriginalKey.Fingerprint);
                     await RefreshAsync();
+                }
+            }
+        }
+        
+        private async void DeleteServerKey_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button button && button.Tag is KeyDisplayItem item && item.OriginalKey != null)
+            {
+                // Get the key ID from the server key
+                var keyId = item.OriginalKey.Id;
+                if (string.IsNullOrEmpty(keyId))
+                {
+                    MessageBox.Show(
+                        "Unable to delete key: Key ID not found.",
+                        "Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    return;
+                }
+                
+                var result = MessageBox.Show(
+                    $"Are you sure you want to delete key '{item.KeyName}' from the server?\n\nThis action cannot be undone.",
+                    "Confirm Delete",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                
+                if (result == MessageBoxResult.Yes)
+                {
+                    try
+                    {
+                        var success = await _keyringManager.DeleteKeyAsync(keyId);
+                        if (success)
+                        {
+                            MessageBox.Show(
+                                $"Key '{item.KeyName}' deleted successfully.",
+                                "Success",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                            await RefreshAsync();
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                $"Failed to delete key '{item.KeyName}'. Please check the logs for details.",
+                                "Error",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Error);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(
+                            $"Error deleting key: {ex.Message}",
+                            "Error",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                    }
                 }
             }
         }

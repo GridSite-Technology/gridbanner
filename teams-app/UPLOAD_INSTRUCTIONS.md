@@ -60,3 +60,4 @@
 - For production, update the manifest `contentUrl` to your production server URL
 - Update `validDomains` in manifest.json to match your domain
 
+
