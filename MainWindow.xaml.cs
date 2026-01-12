@@ -220,10 +220,14 @@ namespace GridBanner
                 {
                     HideAlert();
                 }
+                else if (cmd == "managekeys")
+                {
+                    ShowManageKeysWindow();
+                }
                 else
                 {
                     System.Windows.MessageBox.Show(
-                        $"Unknown command: {command}\n\nSupported commands:\n- silence\n- hidealert",
+                        $"Unknown command: {command}\n\nSupported commands:\n- silence\n- hidealert\n- managekeys",
                         "GridBanner Command",
                         System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Information);

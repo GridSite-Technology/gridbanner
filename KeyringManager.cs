@@ -65,14 +65,12 @@ namespace GridBanner
         private static readonly string IgnoredKeysPath = Path.Combine(UserDataPath, "ignored_keys.json");
         private static readonly string UploadedKeysPath = Path.Combine(UserDataPath, "uploaded_keys.json");
         
-        // Common SSH key locations
-        private static readonly string[] SshKeyPaths = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_rsa.pub"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ed25519.pub"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ecdsa.pub"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_dsa.pub"),
-        };
+        // SSH directory path
+        private static readonly string SshDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
+        
+        // Additional custom key paths (user can add more)
+        private static readonly string CustomKeysPath = Path.Combine(UserDataPath, "custom_key_paths.json");
 
         private readonly JsonSerializerOptions _jsonOptions = new()
         {
@@ -170,57 +168,156 @@ namespace GridBanner
         }
 
         /// <summary>
-        /// Detect SSH public keys from common locations.
+        /// Detect SSH public keys from the .ssh directory and any custom paths.
         /// </summary>
         public List<PublicKeyInfo> DetectLocalKeys()
         {
             var keys = new List<PublicKeyInfo>();
+            var processedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             
-            foreach (var path in SshKeyPaths)
+            // Scan all .pub files in the .ssh directory
+            if (Directory.Exists(SshDirectory))
             {
-                if (File.Exists(path))
+                try
                 {
-                    try
+                    foreach (var path in Directory.GetFiles(SshDirectory, "*.pub"))
                     {
-                        var keyData = File.ReadAllText(path).Trim();
-                        if (string.IsNullOrEmpty(keyData)) continue;
+                        if (processedPaths.Contains(path)) continue;
+                        processedPaths.Add(path);
                         
-                        var parts = keyData.Split(' ');
-                        var keyType = parts.Length > 0 ? parts[0] : "unknown";
-                        var keyName = Path.GetFileName(path);
-                        var fingerprint = ComputeKeyFingerprint(keyData);
-                        
-                        // Check if the private key is password-protected
-                        var isPasswordProtected = false;
-                        try
+                        var keyInfo = TryLoadKeyFromPath(path);
+                        if (keyInfo != null)
                         {
-                            isPasswordProtected = SshKeySigner.IsKeyPasswordProtected(path);
+                            keys.Add(keyInfo);
                         }
-                        catch
-                        {
-                            // Ignore errors checking password protection
-                        }
-                        
-                        keys.Add(new PublicKeyInfo
-                        {
-                            KeyType = keyType,
-                            KeyData = keyData,
-                            KeyName = keyName,
-                            Fingerprint = fingerprint,
-                            SourcePath = path,
-                            IsPasswordProtected = isPasswordProtected
-                        });
-                        
-                        Log($"Detected key: {keyName} ({keyType}){(isPasswordProtected ? " [password protected]" : "")}");
                     }
-                    catch (Exception ex)
-                    {
-                        Log($"Error reading key at {path}: {ex.Message}");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error scanning .ssh directory: {ex.Message}");
+                }
+            }
+            
+            // Also load any custom key paths the user has added
+            var customPaths = LoadCustomKeyPaths();
+            foreach (var path in customPaths)
+            {
+                if (processedPaths.Contains(path)) continue;
+                processedPaths.Add(path);
+                
+                var keyInfo = TryLoadKeyFromPath(path);
+                if (keyInfo != null)
+                {
+                    keys.Add(keyInfo);
                 }
             }
             
             return keys;
+        }
+        
+        /// <summary>
+        /// Try to load a key from a file path.
+        /// </summary>
+        private PublicKeyInfo? TryLoadKeyFromPath(string path)
+        {
+            if (!File.Exists(path)) return null;
+            
+            try
+            {
+                var keyData = File.ReadAllText(path).Trim();
+                if (string.IsNullOrEmpty(keyData)) return null;
+                
+                var parts = keyData.Split(' ');
+                var keyType = parts.Length > 0 ? parts[0] : "unknown";
+                var keyName = Path.GetFileName(path);
+                var fingerprint = ComputeKeyFingerprint(keyData);
+                
+                // Check if the private key is password-protected
+                var isPasswordProtected = false;
+                try
+                {
+                    isPasswordProtected = SshKeySigner.IsKeyPasswordProtected(path);
+                }
+                catch
+                {
+                    // Ignore errors checking password protection
+                }
+                
+                Log($"Detected key: {keyName} ({keyType}){(isPasswordProtected ? " [password protected]" : "")}");
+                
+                return new PublicKeyInfo
+                {
+                    KeyType = keyType,
+                    KeyData = keyData,
+                    KeyName = keyName,
+                    Fingerprint = fingerprint,
+                    SourcePath = path,
+                    IsPasswordProtected = isPasswordProtected
+                };
+            }
+            catch (Exception ex)
+            {
+                Log($"Error reading key at {path}: {ex.Message}");
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// Add a custom key path that the user has manually imported.
+        /// </summary>
+        public void AddCustomKeyPath(string path)
+        {
+            try
+            {
+                var customPaths = LoadCustomKeyPaths();
+                if (!customPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    customPaths.Add(path);
+                    SaveCustomKeyPaths(customPaths);
+                    Log($"Added custom key path: {path}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error adding custom key path: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Load custom key paths from storage.
+        /// </summary>
+        private List<string> LoadCustomKeyPaths()
+        {
+            try
+            {
+                if (File.Exists(CustomKeysPath))
+                {
+                    var json = File.ReadAllText(CustomKeysPath);
+                    return JsonSerializer.Deserialize<List<string>>(json, _jsonOptions) ?? new List<string>();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error loading custom key paths: {ex.Message}");
+            }
+            return new List<string>();
+        }
+        
+        /// <summary>
+        /// Save custom key paths to storage.
+        /// </summary>
+        private void SaveCustomKeyPaths(List<string> paths)
+        {
+            try
+            {
+                EnsureDataDir();
+                var json = JsonSerializer.Serialize(paths, _jsonOptions);
+                File.WriteAllText(CustomKeysPath, json);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error saving custom key paths: {ex.Message}");
+            }
         }
 
         /// <summary>

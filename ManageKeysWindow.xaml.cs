@@ -23,6 +23,69 @@ namespace GridBanner
         public Visibility ActionVisibility { get; set; } = Visibility.Visible;
         public PublicKeyInfo? OriginalKey { get; set; }
         public KeyStatus Status { get; set; }
+        
+        // Compliance properties
+        public bool IsCompliant { get; set; }
+        public string? ComplianceText { get; set; }
+        public Brush? ComplianceColor { get; set; }
+        
+        // Sync status
+        public string SyncStatus { get; set; } = "UNKNOWN";
+        public Brush? SyncStatusColor { get; set; }
+        
+        // Selection
+        public bool IsSelected { get; set; }
+        
+        /// <summary>
+        /// Check if the key type is compliant with security policies.
+        /// Allowed types: Ed25519, ECDSA (ssh-ed25519, ecdsa-sha2-*)
+        /// </summary>
+        public static bool IsKeyTypeCompliant(string? keyType)
+        {
+            if (string.IsNullOrEmpty(keyType)) return false;
+            
+            var type = keyType.ToLowerInvariant();
+            
+            // Ed25519 is the preferred modern algorithm
+            if (type.Contains("ed25519")) return true;
+            
+            // ECDSA with secure curves is acceptable
+            if (type.Contains("ecdsa")) return true;
+            
+            // RSA with sufficient key size could be acceptable, but we'll be strict
+            // and only allow modern algorithms
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Evaluate compliance: key must be a compliant type AND password-protected.
+        /// </summary>
+        public static (bool isCompliant, string reason) EvaluateCompliance(PublicKeyInfo key)
+        {
+            var issues = new List<string>();
+            
+            // Check key type
+            if (!IsKeyTypeCompliant(key.KeyType))
+            {
+                issues.Add($"Key type '{key.KeyType}' is not compliant (use Ed25519 or ECDSA)");
+            }
+            
+            // Check password protection
+            if (!key.IsPasswordProtected)
+            {
+                issues.Add("Key is not password-protected");
+            }
+            
+            if (issues.Count == 0)
+            {
+                return (true, "Compliant ✓");
+            }
+            else
+            {
+                return (false, string.Join("; ", issues));
+            }
+        }
     }
 
     public enum KeyStatus
@@ -67,6 +130,7 @@ namespace GridBanner
             
             foreach (var key in _currentSummary.UploadedLocalKeys)
             {
+                var (isCompliant, complianceReason) = KeyDisplayItem.EvaluateCompliance(key);
                 localItems.Add(new KeyDisplayItem
                 {
                     KeyName = key.KeyName,
@@ -76,44 +140,60 @@ namespace GridBanner
                     StatusColor = Brushes.Green,
                     ActionVisibility = Visibility.Collapsed,
                     OriginalKey = key,
-                    Status = KeyStatus.Uploaded
+                    Status = KeyStatus.Uploaded,
+                    IsCompliant = isCompliant,
+                    ComplianceText = complianceReason,
+                    ComplianceColor = isCompliant ? Brushes.Green : Brushes.OrangeRed,
+                    SyncStatus = "SYNCED",
+                    SyncStatusColor = Brushes.Green
                 });
             }
             
             foreach (var key in _currentSummary.PendingLocalKeys)
             {
+                var (isCompliant, complianceReason) = KeyDisplayItem.EvaluateCompliance(key);
                 var passwordNote = key.IsPasswordProtected ? " 🔒" : "";
+                
+                // Only show "Ready to upload" if compliant
+                string statusText;
+                Brush statusColor;
+                Visibility actionVis;
+                
+                if (isCompliant)
+                {
+                    statusText = key.IsPasswordProtected 
+                        ? "⬆ Ready to upload (password required)" 
+                        : "⬆ Ready to upload";
+                    statusColor = Brushes.DodgerBlue;
+                    actionVis = Visibility.Visible;
+                }
+                else
+                {
+                    statusText = "⚠ Not compliant - cannot upload";
+                    statusColor = Brushes.OrangeRed;
+                    actionVis = Visibility.Collapsed;
+                }
+                
                 localItems.Add(new KeyDisplayItem
                 {
                     KeyName = key.KeyName,
                     KeyType = key.KeyType + passwordNote,
                     Fingerprint = key.Fingerprint,
-                    StatusText = key.IsPasswordProtected 
-                        ? "⬆ Ready to upload (password required)" 
-                        : "⬆ Ready to upload",
-                    StatusColor = Brushes.DodgerBlue,
+                    StatusText = statusText,
+                    StatusColor = statusColor,
                     ActionText = "Upload",
-                    ActionVisibility = Visibility.Visible,
+                    ActionVisibility = actionVis,
                     OriginalKey = key,
-                    Status = KeyStatus.Pending
+                    Status = KeyStatus.Pending,
+                    IsCompliant = isCompliant,
+                    ComplianceText = complianceReason,
+                    ComplianceColor = isCompliant ? Brushes.Green : Brushes.OrangeRed,
+                    SyncStatus = "UNKNOWN",
+                    SyncStatusColor = Brushes.Gray
                 });
             }
             
-            foreach (var key in _currentSummary.IgnoredLocalKeys)
-            {
-                localItems.Add(new KeyDisplayItem
-                {
-                    KeyName = key.KeyName,
-                    KeyType = key.KeyType,
-                    Fingerprint = key.Fingerprint,
-                    StatusText = "⊘ Ignored",
-                    StatusColor = Brushes.Gray,
-                    ActionText = "Upload",
-                    ActionVisibility = Visibility.Visible,
-                    OriginalKey = key,
-                    Status = KeyStatus.Ignored
-                });
-            }
+            // NOTE: Ignored keys are NOT shown in the Local Keys tab - they only appear in the Ignored tab
             
             LocalKeysList.ItemsSource = localItems;
 
@@ -131,13 +211,22 @@ namespace GridBanner
             
             ServerKeysList.ItemsSource = serverItems;
 
-            // Ignored keys
-            var ignoredItems = _currentSummary.IgnoredLocalKeys.Select(key => new KeyDisplayItem
+            // Ignored keys - with compliance info
+            var ignoredItems = _currentSummary.IgnoredLocalKeys.Select(key => 
             {
-                KeyName = key.KeyName,
-                KeyType = key.KeyType,
-                Fingerprint = key.Fingerprint,
-                OriginalKey = key
+                var (isCompliant, complianceReason) = KeyDisplayItem.EvaluateCompliance(key);
+                return new KeyDisplayItem
+                {
+                    KeyName = key.KeyName,
+                    KeyType = key.KeyType,
+                    Fingerprint = key.Fingerprint,
+                    OriginalKey = key,
+                    IsCompliant = isCompliant,
+                    ComplianceText = complianceReason,
+                    ComplianceColor = isCompliant ? Brushes.Green : Brushes.OrangeRed,
+                    SyncStatus = "IGNORED",
+                    SyncStatusColor = Brushes.Gray
+                };
             }).ToList();
             
             IgnoredKeysList.ItemsSource = ignoredItems;
@@ -214,6 +303,124 @@ namespace GridBanner
                     _keyringManager.UnignoreKey(item.OriginalKey.Fingerprint);
                     await RefreshAsync();
                 }
+            }
+        }
+
+        private async void ImportKey_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "Select SSH Public Key",
+                    Filter = "SSH Public Keys (*.pub)|*.pub|All Files (*.*)|*.*",
+                    InitialDirectory = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh")
+                };
+                
+                if (dialog.ShowDialog() == true)
+                {
+                    var path = dialog.FileName;
+                    
+                    // Validate it looks like an SSH public key
+                    var content = System.IO.File.ReadAllText(path).Trim();
+                    if (!content.StartsWith("ssh-") && !content.StartsWith("ecdsa-"))
+                    {
+                        MessageBox.Show(
+                            "The selected file doesn't appear to be a valid SSH public key.\n\nSSH public keys typically start with 'ssh-rsa', 'ssh-ed25519', 'ecdsa-sha2-', etc.",
+                            "Invalid Key File",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                        return;
+                    }
+                    
+                    // Add the custom key path
+                    _keyringManager.AddCustomKeyPath(path);
+                    
+                    MessageBox.Show(
+                        $"Key imported successfully:\n{System.IO.Path.GetFileName(path)}",
+                        "Key Imported",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    
+                    // Refresh the list
+                    await RefreshAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error importing key: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private async void SyncSelectedKeys_Click(object sender, RoutedEventArgs e)
+        {
+            var selectedItems = LocalKeysList.SelectedItems.Cast<KeyDisplayItem>().ToList();
+            
+            if (selectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select one or more keys to sync.", "No Keys Selected", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            // Filter to pending/ignored keys that are also compliant
+            var pendingKeys = selectedItems
+                .Where(k => (k.Status == KeyStatus.Pending || k.Status == KeyStatus.Ignored) && k.IsCompliant)
+                .ToList();
+            
+            var nonCompliantCount = selectedItems.Count(k => !k.IsCompliant);
+            
+            if (pendingKeys.Count == 0)
+            {
+                if (nonCompliantCount > 0)
+                {
+                    MessageBox.Show(
+                        "The selected keys are not compliant and cannot be synced.\n\nKeys must be Ed25519 or ECDSA and password-protected to be uploaded.",
+                        "Not Compliant",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+                else
+                {
+                    MessageBox.Show("All selected keys are already synced.", "Already Synced", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                return;
+            }
+            
+            foreach (var item in pendingKeys)
+            {
+                await UploadKeyWithPasswordPromptAsync(item);
+            }
+        }
+        
+        private void RemoveSelectedKeys_Click(object sender, RoutedEventArgs e)
+        {
+            var selectedItems = LocalKeysList.SelectedItems.Cast<KeyDisplayItem>().ToList();
+            
+            if (selectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select one or more keys to ignore.", "No Keys Selected", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            var result = MessageBox.Show(
+                $"Are you sure you want to ignore {selectedItems.Count} key(s)?\n\nIgnored keys won't be synced but will remain on your system.",
+                "Confirm Ignore",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            
+            if (result == MessageBoxResult.Yes)
+            {
+                foreach (var item in selectedItems)
+                {
+                    if (item.OriginalKey != null)
+                    {
+                        _keyringManager.IgnoreKey(item.OriginalKey);
+                    }
+                }
+                
+                // Refresh to show updated status
+                Dispatcher.BeginInvoke(new Action(async () => await RefreshAsync()));
             }
         }
 

@@ -2,6 +2,10 @@
 bin/
 obj/
 
+# Large installer artifacts
+installers/*/bin/
+installers/*/obj/
+
 # User-specific files
 *.user
 *.suo
@@ -27,7 +31,7 @@ __pycache__/
 .Python
 #build/
 develop-eggs/dist/
-downloads/
+downloads/1
 eggs/
 .eggs/
 lib/
