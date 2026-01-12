@@ -132,17 +132,19 @@
                                             <TextBlock Text="{Binding KeyName}" FontWeight="Bold" FontSize="14"/>
                                             <TextBlock Text="{Binding KeyType}" Foreground="#666" FontSize="11"/>
                                             <TextBlock Text="{Binding Fingerprint}" FontFamily="Consolas" FontSize="10" Foreground="#888" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding UploadedAt}" Foreground="#888" FontSize="10" Margin="0,5,0,0"/>
+                                            <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="11" Margin="0,3,0,0" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding UploadedAt}" Foreground="#888" FontSize="10" Margin="0,2,0,0"/>
                                         </StackPanel>
-                                        <Button Grid.Column="1" Content="Delete" 
-                                                Width="80" Height="28" 
+                                        <Button Grid.Column="1" Content="Remove from Keyring" 
+                                                Width="140" Height="28" 
                                                 VerticalAlignment="Center"
                                                 Click="DeleteServerKey_Click"
                                                 Tag="{Binding}"
                                                 Background="#DC3545"
                                                 Foreground="White"
                                                 BorderThickness="0"
-                                                Cursor="Hand"/>
+                                                Cursor="Hand"
+                                                ToolTip="Remove this key from the server keyring"/>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

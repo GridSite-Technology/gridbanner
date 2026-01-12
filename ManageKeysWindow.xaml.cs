@@ -222,16 +222,29 @@ namespace GridBanner
             
             LocalKeysList.ItemsSource = localItems;
 
-            // Server keys
-            var serverItems = _currentSummary.ServerKeys.Select(key => new KeyDisplayItem
+            // Server keys - include both synced local keys AND server-only keys
+            var uploadedLocalFingerprints = _currentSummary.UploadedLocalKeys
+                .Where(k => !string.IsNullOrEmpty(k.Fingerprint))
+                .Select(k => k.Fingerprint!)
+                .ToHashSet();
+            
+            var serverItems = _currentSummary.ServerKeys.Select(key => 
             {
-                KeyName = key.KeyName,
-                KeyType = key.KeyType,
-                Fingerprint = key.Fingerprint,
-                UploadedAt = !string.IsNullOrEmpty(key.UploadedAt) 
-                    ? $"Uploaded: {DateTime.Parse(key.UploadedAt).ToLocalTime():g}" 
-                    : null,
-                OriginalKey = key
+                var isServerOnly = !string.IsNullOrEmpty(key.Fingerprint) && 
+                                  !uploadedLocalFingerprints.Contains(key.Fingerprint);
+                
+                return new KeyDisplayItem
+                {
+                    KeyName = key.KeyName,
+                    KeyType = key.KeyType,
+                    Fingerprint = key.Fingerprint,
+                    UploadedAt = !string.IsNullOrEmpty(key.UploadedAt) 
+                        ? $"Uploaded: {DateTime.Parse(key.UploadedAt).ToLocalTime():g}" 
+                        : null,
+                    StatusText = isServerOnly ? "⚠ Server-only (not found locally)" : "✓ Synced with local key",
+                    StatusColor = isServerOnly ? Brushes.Orange : Brushes.Green,
+                    OriginalKey = key
+                };
             }).ToList();
             
             ServerKeysList.ItemsSource = serverItems;
