@@ -9,27 +9,43 @@
         Topmost="True"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterScreen"
-        Focusable="True">
+        Background="White">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         
         <TextBlock Grid.Row="0" 
                    Text="Enter command:" 
-                   Margin="0,0,0,15"
+                   Margin="0,0,0,10"
                    FontWeight="Bold"
-                   FontSize="14"/>
+                   FontSize="14"
+                   Foreground="Black"/>
         
         <TextBox x:Name="CommandTextBox"
                  Grid.Row="1"
-                 FontSize="13"
-                 Padding="8,6"
+                 FontSize="14"
+                 Height="30"
+                 Padding="5"
                  KeyDown="CommandTextBox_KeyDown"
                  Margin="0,0,0,15"
-                 VerticalContentAlignment="Center"/>
+                 VerticalContentAlignment="Center"
+                 HorizontalContentAlignment="Left"
+                 TextWrapping="NoWrap"
+                 AcceptsReturn="False"
+                 Text="">
+            <TextBox.Resources>
+                <Style TargetType="TextBox">
+                    <Setter Property="Foreground" Value="#000000"/>
+                    <Setter Property="Background" Value="#FFFFFF"/>
+                    <Setter Property="BorderBrush" Value="#FF0078D4"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                    <Setter Property="Padding" Value="5"/>
+                </Style>
+            </TextBox.Resources>
+        </TextBox>
         
         <StackPanel Grid.Row="2" 
                     Orientation="Horizontal" 
@@ -50,4 +66,3 @@
         </StackPanel>
     </Grid>
 </Window>
-
