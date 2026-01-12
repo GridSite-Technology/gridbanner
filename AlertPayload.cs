@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace GridBanner
@@ -37,6 +38,10 @@ namespace GridBanner
         // Optional site filter: if set, only workstations with matching site_name will show this alert
         [JsonPropertyName("site")]
         public string? Site { get; set; }
+
+        // Optional Azure/Entra group filter: if set, only systems in these groups will show this alert
+        [JsonPropertyName("target_groups")]
+        public List<string>? TargetGroups { get; set; }
 
         // Optional audio file: if set, use this audio file instead of system beep
         [JsonPropertyName("audio_file")]

@@ -111,6 +111,64 @@ namespace GridBanner
         }
         
         /// <summary>
+        /// Fetch GridBanner URL from a specific server (requires authentication).
+        /// This is the URL that GridBanner clients should use to connect.
+        /// </summary>
+        public async Task<string?> FetchGridBannerUrlFromServerAsync(string serverUrl)
+        {
+            try
+            {
+                var url = serverUrl.TrimEnd('/') + "/api/admin/gridbanner-url";
+                
+                // Create request with authentication if available
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (_authManager != null && _authManager.IsEnabled)
+                {
+                    try
+                    {
+                        var token = _authManager.GetAccessToken();
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Warning: Could not get auth token for GridBanner URL: {ex.Message}");
+                        // Continue without auth - might work if endpoint is public
+                    }
+                }
+                
+                var response = await _httpClient.SendAsync(request);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var result = JsonSerializer.Deserialize<GridBannerUrlResponse>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    
+                    if (result != null && !string.IsNullOrEmpty(result.GridbannerUrl))
+                    {
+                        Log($"Fetched GridBanner URL from server: {result.GridbannerUrl}");
+                        return result.GridbannerUrl;
+                    }
+                }
+                else
+                {
+                    Log($"Failed to fetch GridBanner URL: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error fetching GridBanner URL from server {serverUrl}: {ex.Message}");
+            }
+            
+            return null;
+        }
+        
+        /// <summary>
         /// Fetch alert server URL from a specific discovery server.
         /// </summary>
         public async Task<string?> FetchFromServerAsync(string discoveryServerUrl)
@@ -155,6 +213,15 @@ namespace GridBanner
     {
         public string? AlertServerUrl { get; set; }
         public bool Configured { get; set; }
+    }
+    
+    /// <summary>
+    /// Response from GridBanner URL endpoint.
+    /// </summary>
+    internal class GridBannerUrlResponse
+    {
+        public string? GridbannerUrl { get; set; }
+        public bool Success { get; set; }
     }
 }
 

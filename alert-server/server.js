@@ -5,6 +5,8 @@ const multer = require('multer');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
+const { Client } = require('@microsoft/microsoft-graph-client');
+const { ClientSecretCredential } = require('@azure/identity');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,23 +52,68 @@ async function loadConfig() {
     }
 }
 
-// Azure AD configuration
-const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || config?.azure_tenant_id;
-const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || config?.azure_client_id;
-const AZURE_AUTH_ENABLED = (process.env.AZURE_AUTH_ENABLED === 'true' || config?.azure_auth_enabled === true) && AZURE_TENANT_ID && AZURE_CLIENT_ID;
-
-// Azure AD token validation setup
+// Azure AD configuration (will be initialized after config is loaded)
+let AZURE_TENANT_ID;
+let AZURE_CLIENT_ID;
+let AZURE_CLIENT_SECRET;
+let AZURE_AUTH_ENABLED = false;
+let graphClient = null;
 let azureJwksClient = null;
-if (AZURE_AUTH_ENABLED) {
-    const JWKS_URI = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/discovery/v2.0/keys`;
-    azureJwksClient = jwksClient({
-        jwksUri: JWKS_URI,
-        requestHeaders: {},
-        timeout: 30000
-    });
-    console.log('Azure AD authentication enabled');
-} else {
-    console.log('Azure AD authentication disabled');
+
+// Initialize Azure AD configuration
+function initializeAzureAD() {
+    AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || config?.azure_tenant_id;
+    AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || config?.azure_client_id;
+    AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || config?.azure_client_secret;
+    AZURE_AUTH_ENABLED = (process.env.AZURE_AUTH_ENABLED === 'true' || config?.azure_auth_enabled === true) && AZURE_TENANT_ID && AZURE_CLIENT_ID;
+
+    // Azure Graph API client (for querying groups)
+    graphClient = null;
+    if (AZURE_AUTH_ENABLED && AZURE_CLIENT_SECRET) {
+        try {
+            const credential = new ClientSecretCredential(
+                AZURE_TENANT_ID,
+                AZURE_CLIENT_ID,
+                AZURE_CLIENT_SECRET
+            );
+            
+            // Create Graph client with authentication provider
+            graphClient = Client.initWithMiddleware({
+                authProvider: {
+                    getAccessToken: async () => {
+                        const tokenResponse = await credential.getToken(['https://graph.microsoft.com/.default']);
+                        return tokenResponse.token;
+                    }
+                }
+            });
+            console.log('Azure Graph API client initialized');
+        } catch (error) {
+            console.error('Failed to initialize Azure Graph API client:', error.message);
+            console.log('Group queries will be unavailable');
+        }
+    }
+
+    // Azure AD token validation setup
+    azureJwksClient = null;
+    if (AZURE_AUTH_ENABLED) {
+        const JWKS_URI = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/discovery/v2.0/keys`;
+        azureJwksClient = jwksClient({
+            jwksUri: JWKS_URI,
+            requestHeaders: {},
+            timeout: 30000
+        });
+        console.log('Azure AD authentication enabled');
+        console.log(`  Tenant ID: ${AZURE_TENANT_ID}`);
+        console.log(`  Client ID: ${AZURE_CLIENT_ID}`);
+        console.log(`  Graph API: ${graphClient ? 'Enabled' : 'Disabled (missing client secret)'}`);
+    } else {
+        console.log('Azure AD authentication disabled');
+        if (!AZURE_TENANT_ID || !AZURE_CLIENT_ID) {
+            console.log('  Reason: Missing tenant ID or client ID in config');
+        } else if (config?.azure_auth_enabled !== true && process.env.AZURE_AUTH_ENABLED !== 'true') {
+            console.log('  Reason: azure_auth_enabled is not set to true');
+        }
+    }
 }
 
 // Function to get signing key for JWT verification
@@ -607,6 +654,72 @@ app.get('/api/audio/:name/download', async (req, res) => {
     }
 });
 
+// Get all systems with their Azure groups (admin only)
+app.get('/api/systems', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const systems = data.systems || {};
+        
+        // Return list of systems with groups
+        const systemList = await Promise.all(
+            Object.entries(systems).map(async ([workstationName, systemData]) => {
+                let groups = [];
+                // Try to get groups from system's Azure object ID first
+                if (systemData.azure_object_id) {
+                    groups = await getSystemGroups(systemData.azure_object_id);
+                }
+                // If no groups from system object ID, try to get from user's email/UPN
+                if (groups.length === 0 && systemData.username) {
+                    // Try to find user's email/UPN - could be in username field or we need to look it up
+                    // For now, assume username might be an email
+                    groups = await getUserGroups(systemData.username);
+                }
+                return {
+                    workstation_name: workstationName,
+                    ...systemData,
+                    groups: groups
+                };
+            })
+        );
+        
+        res.json(systemList);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get system's Azure groups
+app.get('/api/systems/:workstationName/groups', authenticate, async (req, res) => {
+    try {
+        const workstationName = decodeURIComponent(req.params.workstationName);
+        const data = await loadData();
+        const system = data.systems?.[workstationName];
+        
+        if (!system) {
+            return res.status(404).json({ error: 'System not found' });
+        }
+        
+        let groups = [];
+        if (system.azure_object_id) {
+            groups = await getSystemGroups(system.azure_object_id);
+        }
+        
+        res.json({ groups });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all Azure/Entra groups (for admin interface)
+app.get('/api/groups', authenticate, async (req, res) => {
+    try {
+        const groups = await getAllGroups();
+        res.json({ groups });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // System registration endpoint (for GridBanner clients)
 app.post('/api/systems', async (req, res) => {
     try {
@@ -635,22 +748,170 @@ app.post('/api/systems', async (req, res) => {
 });
 
 // ============================================
+// Azure Graph API Helpers
+// ============================================
+
+/**
+ * Get Azure/Entra groups for a user by their email/UPN
+ */
+async function getUserGroups(userEmail) {
+    if (!graphClient || !userEmail) {
+        return [];
+    }
+    
+    try {
+        // First, find the user by email/UPN
+        const users = await graphClient.api('/users')
+            .filter(`userPrincipalName eq '${userEmail}' or mail eq '${userEmail}'`)
+            .select('id,userPrincipalName,mail')
+            .get();
+        
+        if (!users.value || users.value.length === 0) {
+            console.log(`User not found in Azure AD: ${userEmail}`);
+            return [];
+        }
+        
+        const userId = users.value[0].id;
+        
+        // Get user's group memberships
+        const groups = await graphClient.api(`/users/${userId}/memberOf`)
+            .select('id,displayName,mailEnabled,securityEnabled')
+            .get();
+        
+        return (groups.value || []).map(g => ({
+            id: g.id,
+            displayName: g.displayName,
+            mailEnabled: g.mailEnabled || false,
+            securityEnabled: g.securityEnabled !== false // Default to true if not specified
+        }));
+    } catch (error) {
+        console.error(`Error fetching groups for user ${userEmail}:`, error.message);
+        return [];
+    }
+}
+
+/**
+ * Get Azure/Entra groups for a system by its Azure object ID
+ * Systems can be associated with Azure AD device objects
+ */
+async function getSystemGroups(azureObjectId) {
+    if (!graphClient || !azureObjectId) {
+        return [];
+    }
+    
+    try {
+        // Get device's group memberships
+        const groups = await graphClient.api(`/devices/${azureObjectId}/memberOf`)
+            .select('id,displayName,mailEnabled,securityEnabled')
+            .get();
+        
+        return (groups.value || []).map(g => ({
+            id: g.id,
+            displayName: g.displayName,
+            mailEnabled: g.mailEnabled || false,
+            securityEnabled: g.securityEnabled !== false
+        }));
+    } catch (error) {
+        console.error(`Error fetching groups for system ${azureObjectId}:`, error.message);
+        return [];
+    }
+}
+
+/**
+ * Get all users in specified Azure/Entra groups
+ */
+async function getUsersInGroups(groupIds) {
+    if (!graphClient || !groupIds || groupIds.length === 0) {
+        return [];
+    }
+    
+    try {
+        const allUsers = new Set();
+        
+        // Get users from each group
+        for (const groupId of groupIds) {
+            try {
+                const members = await graphClient.api(`/groups/${groupId}/members`)
+                    .select('id,userPrincipalName,mail')
+                    .get();
+                
+                (members.value || []).forEach(user => {
+                    if (user.userPrincipalName || user.mail) {
+                        allUsers.add(user.userPrincipalName || user.mail);
+                    }
+                });
+            } catch (error) {
+                console.error(`Error fetching members of group ${groupId}:`, error.message);
+            }
+        }
+        
+        return Array.from(allUsers);
+    } catch (error) {
+        console.error('Error fetching users in groups:', error.message);
+        return [];
+    }
+}
+
+/**
+ * Get all Azure/Entra groups (for admin interface)
+ */
+async function getAllGroups() {
+    if (!graphClient) {
+        return [];
+    }
+    
+    try {
+        const groups = await graphClient.api('/groups')
+            .select('id,displayName,mailEnabled,securityEnabled')
+            .orderby('displayName')
+            .get();
+        
+        return (groups.value || []).map(g => ({
+            id: g.id,
+            displayName: g.displayName,
+            mailEnabled: g.mailEnabled || false,
+            securityEnabled: g.securityEnabled !== false
+        }));
+    } catch (error) {
+        console.error('Error fetching all groups:', error.message);
+        return [];
+    }
+}
+
+// ============================================
 // User Keyring Management Endpoints
 // ============================================
 
-// Get all users with their key counts (admin only)
+// Get user's Azure/Entra groups
+app.get('/api/users/:username/groups', authenticate, async (req, res) => {
+    try {
+        const username = decodeURIComponent(req.params.username);
+        const groups = await getUserGroups(username);
+        res.json({ groups });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all users with their key counts and Azure groups (admin only)
 app.get('/api/users', authenticate, async (req, res) => {
     try {
         const data = await loadData();
         const users = data.users || {};
         
-        // Return list of users with key counts
-        const userList = Object.entries(users).map(([username, userData]) => ({
-            username,
-            display_name: userData.display_name || username,
-            key_count: (userData.public_keys || []).length,
-            last_seen: userData.last_seen
-        }));
+        // Return list of users with key counts and groups
+        const userList = await Promise.all(
+            Object.entries(users).map(async ([username, userData]) => {
+                const groups = await getUserGroups(username);
+                return {
+                    username,
+                    display_name: userData.display_name || username,
+                    key_count: (userData.public_keys || []).length,
+                    last_seen: userData.last_seen,
+                    groups: groups
+                };
+            })
+        );
         
         res.json(userList);
     } catch (error) {
@@ -880,6 +1141,153 @@ app.delete('/api/keyring/:username/keys/:keyId',
     }
 });
 
+// ============================================
+// Authorized Keys Endpoint
+// ============================================
+
+// Generate authorized_keys file
+// Query params: ?groups=groupId1,groupId2 (optional - filter by Azure groups)
+// If no groups specified, returns all users' keys
+app.get('/api/authorized-keys', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const users = data.users || {};
+        
+        let targetUsers = Object.keys(users);
+        
+        // If groups specified, filter users by group membership
+        if (req.query.groups) {
+            const groupIds = req.query.groups.split(',').map(g => g.trim()).filter(g => g);
+            if (groupIds.length > 0) {
+                const usersInGroups = await getUsersInGroups(groupIds);
+                targetUsers = targetUsers.filter(username => usersInGroups.includes(username));
+            }
+        }
+        
+        // Collect all public keys from target users
+        const authorizedKeys = [];
+        for (const username of targetUsers) {
+            const user = users[username];
+            if (user && user.public_keys) {
+                for (const key of user.public_keys) {
+                    if (key.key_data && key.verified) {
+                        // Format: key_data comment (username)
+                        authorizedKeys.push(`${key.key_data} ${username}`);
+                    }
+                }
+            }
+        }
+        
+        res.setHeader('Content-Type', 'text/plain');
+        res.send(authorizedKeys.join('\n') + '\n');
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// Azure Settings Management Endpoints
+// ============================================
+
+// Get GridBanner URL from Azure settings
+app.get('/api/admin/gridbanner-url', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const gridbannerUrl = data.settings?.gridbanner_url || '';
+        res.json({ gridbanner_url: gridbannerUrl });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Set GridBanner URL in Azure settings
+app.post('/api/admin/gridbanner-url', authenticate, async (req, res) => {
+    try {
+        const { gridbanner_url } = req.body;
+        
+        if (!gridbanner_url || typeof gridbanner_url !== 'string') {
+            return res.status(400).json({ error: 'gridbanner_url is required and must be a string' });
+        }
+        
+        // Validate URL format
+        try {
+            new URL(gridbanner_url);
+        } catch {
+            return res.status(400).json({ error: 'Invalid URL format' });
+        }
+        
+        const data = await loadData();
+        if (!data.settings) {
+            data.settings = {};
+        }
+        data.settings.gridbanner_url = gridbanner_url;
+        await saveData(data);
+        
+        console.log(`GridBanner URL updated to: ${gridbanner_url}`);
+        res.json({ 
+            success: true, 
+            gridbanner_url: gridbanner_url,
+            message: 'GridBanner URL updated successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get global settings from Azure
+app.get('/api/admin/global-settings', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const globalSettings = data.settings?.global_settings || {
+            triple_click_enabled: null,
+            terminate_enabled: null,
+            keyring_enabled: null,
+            tray_only_mode: null
+        };
+        res.json(globalSettings);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Set global settings in Azure
+app.post('/api/admin/global-settings', authenticate, async (req, res) => {
+    try {
+        const globalSettings = req.body;
+        
+        // Validate settings structure
+        const validSettings = {
+            triple_click_enabled: globalSettings.triple_click_enabled,
+            terminate_enabled: globalSettings.terminate_enabled,
+            keyring_enabled: globalSettings.keyring_enabled,
+            tray_only_mode: globalSettings.tray_only_mode
+        };
+        
+        // Remove null/undefined values
+        Object.keys(validSettings).forEach(key => {
+            if (validSettings[key] === null || validSettings[key] === undefined) {
+                delete validSettings[key];
+            }
+        });
+        
+        const data = await loadData();
+        if (!data.settings) {
+            data.settings = {};
+        }
+        data.settings.global_settings = validSettings;
+        await saveData(data);
+        
+        console.log('Global settings updated:', validSettings);
+        res.json({ 
+            success: true, 
+            global_settings: validSettings,
+            message: 'Global settings updated successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Helper function to verify SSH signature
 function verifySSHSignature(publicKeyData, challenge, signatureBase64) {
     // Parse the SSH public key format: "type base64data comment"
@@ -1086,6 +1494,7 @@ app.delete('/api/users/:username', authenticate, async (req, res) => {
 // Start server
 async function startServer() {
     await loadConfig();
+    initializeAzureAD(); // Initialize Azure AD after config is loaded
     await ensureDirectories();
     
     const server = app.listen(PORT, () => {

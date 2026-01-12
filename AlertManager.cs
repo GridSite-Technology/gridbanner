@@ -25,6 +25,7 @@ namespace GridBanner
         private string? _url;
         private TimeSpan _pollInterval = TimeSpan.FromSeconds(5);
         private HashSet<string>? _workstationSites;  // null = no filtering (backward compatible)
+        private HashSet<string>? _systemGroups;  // Azure/Entra groups this system belongs to (for group-based filtering)
         private SystemInfo? _systemInfo;  // System info to send when polling
         private string? _baseUrl;  // Base URL for downloading audio files
         
@@ -53,7 +54,27 @@ namespace GridBanner
             int ComplianceStatus
         );
 
-        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null, SystemInfo? systemInfo = null)
+        public void Configure(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null, SystemInfo? systemInfo = null, List<string>? systemGroups = null)
+        {
+            ConfigureInternal(alertFileLocation, alertUrl, pollInterval, workstationSiteNames, systemInfo, systemGroups);
+        }
+        
+        /// <summary>
+        /// Update system groups without full reconfiguration.
+        /// </summary>
+        public void UpdateSystemGroups(List<string>? systemGroups)
+        {
+            if (systemGroups != null && systemGroups.Count > 0)
+            {
+                _systemGroups = new HashSet<string>(systemGroups, StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                _systemGroups = null;
+            }
+        }
+        
+        private void ConfigureInternal(string? alertFileLocation, string? alertUrl, TimeSpan pollInterval, string? workstationSiteNames = null, SystemInfo? systemInfo = null, List<string>? systemGroups = null)
         {
             _filePath = string.IsNullOrWhiteSpace(alertFileLocation) ? null : alertFileLocation.Trim();
             _url = string.IsNullOrWhiteSpace(alertUrl) ? null : alertUrl.Trim();
@@ -96,6 +117,16 @@ namespace GridBanner
                         .Select(s => s.ToLowerInvariant()),
                     StringComparer.OrdinalIgnoreCase
                 );
+            }
+            
+            // Store system's Azure/Entra groups for group-based filtering
+            if (systemGroups != null && systemGroups.Count > 0)
+            {
+                _systemGroups = new HashSet<string>(systemGroups, StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                _systemGroups = null;
             }
         }
 
@@ -355,6 +386,7 @@ namespace GridBanner
 
             var site = payload.Site?.Trim();
             var siteLower = string.IsNullOrWhiteSpace(site) ? null : site.ToLowerInvariant();
+            var targetGroups = payload.TargetGroups;
 
             // Site filtering: if alert has a site, only show to workstations that have that site
             if (siteLower != null)
@@ -366,7 +398,27 @@ namespace GridBanner
                     return null;
                 }
             }
-            // If alert has no site, show to everyone (backward compatible)
+            
+            // Group filtering: if alert has target_groups, only show to systems in those groups
+            if (targetGroups != null && targetGroups.Count > 0)
+            {
+                // Alert has target groups - only show if system is in at least one of those groups
+                if (_systemGroups == null || _systemGroups.Count == 0)
+                {
+                    // System has no groups configured - don't show group-targeted alerts
+                    return null;
+                }
+                
+                // Check if system is in any of the target groups
+                var isInTargetGroup = targetGroups.Any(groupId => _systemGroups.Contains(groupId));
+                if (!isInTargetGroup)
+                {
+                    // System is not in any of the target groups - don't show
+                    return null;
+                }
+            }
+            
+            // If alert has neither site nor target_groups, show to everyone (backward compatible)
 
             var signature = ComputeSignature(trimmed);
             var alertSite = payload.Site?.Trim();

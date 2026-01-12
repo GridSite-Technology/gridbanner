@@ -404,18 +404,29 @@ namespace GridBanner
 
                 var siteNames = config.GetValueOrDefault("site_name", string.Empty).Trim();
                 var alertUrl = config.GetValueOrDefault("alert_url", string.Empty).Trim();
+                
+                // Try to fetch GridBanner URL from server if Azure auth is enabled
+                if (string.IsNullOrWhiteSpace(alertUrl))
+                {
+                    _ = FetchAndApplyServerSettingsAsync(alertUrl);
+                }
+                
                 var alertServerConfigured = !string.IsNullOrWhiteSpace(alertUrl);
 
                 // Check for permit_terminate and disable_triple_click_menu config options
+                // These can be overridden by global settings from server
                 var permitTerminate = ParseInt(config.GetValueOrDefault("permit_terminate", "0"), 0) == 1;
                 var tripleClickMenuEnabled = ParseInt(config.GetValueOrDefault("disable_triple_click_menu", "0"), 0) == 0;
                 
-                // Keyring feature (optional)
+                // Keyring feature (optional) - can be overridden by global settings
                 _keyringEnabled = ParseInt(config.GetValueOrDefault("keyring_enabled", "0"), 0) == 1;
                 LogMessage($"Keyring feature: {(_keyringEnabled ? "enabled" : "disabled")}");
                 
-                // Tray-only mode
+                // Tray-only mode - can be overridden by global settings
                 var newTrayOnlyMode = ParseInt(config.GetValueOrDefault("tray_only", "0"), 0) == 1;
+                
+                // Fetch and apply global settings from server (async, won't block initialization)
+                _ = FetchAndApplyGlobalSettingsAsync(permitTerminate, tripleClickMenuEnabled, _keyringEnabled, newTrayOnlyMode);
                 var trayModeChanged = _trayOnlyMode != newTrayOnlyMode;
                 _trayOnlyMode = newTrayOnlyMode;
                 LogMessage($"Tray-only mode: {(_trayOnlyMode ? "enabled" : "disabled")}");
@@ -633,8 +644,15 @@ namespace GridBanner
                 ComplianceStatus: complianceStatus
             );
             
-            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames, systemInfo);
+            // Configure alert manager initially (system groups will be added later)
+            _alertManager!.Configure(alertFile, alertUrl, TimeSpan.FromSeconds(pollSeconds), siteNames, systemInfo, null);
             _alertManager.Start();
+            
+            // Fetch system's Azure groups for group-based alert filtering (async, updates AlertManager later)
+            if (_azureAuthManager != null && _azureAuthManager.IsEnabled)
+            {
+                _ = FetchAndUpdateSystemGroupsAsync();
+            }
             
             // Set base URL for audio downloads
             if (!string.IsNullOrWhiteSpace(alertUrl))
@@ -1605,6 +1623,207 @@ SOFTWARE.";
             }
         }
 
+        /// <summary>
+        /// Fetch GridBanner URL and global settings from the server and apply them.
+        /// </summary>
+        private async Task FetchAndApplyServerSettingsAsync(string? currentAlertUrl)
+        {
+            try
+            {
+                // Only fetch if we have Azure auth configured
+                if (_azureAuthManager == null || !_azureAuthManager.IsEnabled)
+                {
+                    return;
+                }
+                
+                // Try to get a base URL from the current alert URL, or use a discovery endpoint
+                string? baseUrl = null;
+                if (!string.IsNullOrWhiteSpace(currentAlertUrl) && Uri.TryCreate(currentAlertUrl, UriKind.Absolute, out var uri))
+                {
+                    baseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+                }
+                
+                if (string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    // Try to discover the server URL
+                    var config = ConfigManager.LoadConfig();
+                    var azureTenantId = config.GetValueOrDefault("azure_tenant_id", string.Empty).Trim();
+                    var resolver = new AlertServerUrlResolver(_azureAuthManager, azureTenantId);
+                    resolver.LogMessage += (_, msg) => LogMessage($"URL Resolver: {msg}");
+                    
+                    // Try to fetch GridBanner URL from a known discovery endpoint
+                    // For now, we'll need the user to configure an initial alert_url
+                    // In the future, this could use Microsoft Graph API
+                    return;
+                }
+                
+                // Fetch GridBanner URL
+                var urlResolver = new AlertServerUrlResolver(_azureAuthManager, null);
+                urlResolver.LogMessage += (_, msg) => LogMessage($"URL Resolver: {msg}");
+                var gridbannerUrl = await urlResolver.FetchGridBannerUrlFromServerAsync(baseUrl);
+                
+                if (!string.IsNullOrWhiteSpace(gridbannerUrl))
+                {
+                    LogMessage($"Fetched GridBanner URL from server: {gridbannerUrl}");
+                    // Note: We don't automatically update the config, but we could use this URL
+                    // for future connections. For now, the user still needs to configure alert_url.
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error fetching server settings: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Fetch global settings from the server and apply them.
+        /// </summary>
+        private async Task FetchAndApplyGlobalSettingsAsync(bool currentPermitTerminate, bool currentTripleClick, bool currentKeyring, bool currentTrayOnly)
+        {
+            try
+            {
+                // Only fetch if we have Azure auth and an alert URL configured
+                if (_azureAuthManager == null || !_azureAuthManager.IsEnabled || _alertManager == null)
+                {
+                    return;
+                }
+                
+                var baseUrl = _alertManager.BaseUrl;
+                if (string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    return;
+                }
+                
+                var fetcher = new GlobalSettingsFetcher(_azureAuthManager, baseUrl);
+                fetcher.LogMessage += (_, msg) => LogMessage($"Global Settings: {msg}");
+                var settings = await fetcher.FetchGlobalSettingsAsync();
+                
+                if (settings != null)
+                {
+                    // Apply global settings (they override local config)
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (settings.TripleClickEnabled.HasValue)
+                        {
+                            // Update triple-click menu setting
+                            // This would need to be stored and applied when creating banners
+                            LogMessage($"Global setting: triple_click_enabled = {settings.TripleClickEnabled.Value}");
+                        }
+                        
+                        if (settings.TerminateEnabled.HasValue)
+                        {
+                            // Update terminate setting
+                            LogMessage($"Global setting: terminate_enabled = {settings.TerminateEnabled.Value}");
+                        }
+                        
+                        if (settings.KeyringEnabled.HasValue)
+                        {
+                            // Update keyring setting
+                            _keyringEnabled = settings.KeyringEnabled.Value;
+                            LogMessage($"Global setting: keyring_enabled = {settings.KeyringEnabled.Value}");
+                        }
+                        
+                        if (settings.TrayOnlyMode.HasValue)
+                        {
+                            // Update tray-only mode
+                            var newTrayOnly = settings.TrayOnlyMode.Value;
+                            if (_trayOnlyMode != newTrayOnly)
+                            {
+                                _trayOnlyMode = newTrayOnly;
+                                if (_trayOnlyMode)
+                                {
+                                    SetupTrayIcon(ParseColor(ConfigManager.LoadConfig().GetValueOrDefault("background_color", "#FFA500")));
+                                }
+                                else
+                                {
+                                    CleanupTrayIcon();
+                                }
+                                LogMessage($"Global setting: tray_only_mode = {settings.TrayOnlyMode.Value}");
+                            }
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error fetching global settings: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Fetch system's Azure/Entra groups and update AlertManager for group-based alert filtering.
+        /// </summary>
+        private async Task FetchAndUpdateSystemGroupsAsync()
+        {
+            try
+            {
+                if (_azureAuthManager == null || !_azureAuthManager.IsEnabled || _alertManager == null)
+                {
+                    return;
+                }
+                
+                var baseUrl = _alertManager.BaseUrl;
+                if (string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    return;
+                }
+                
+                // Get current user's email/UPN
+                var userEmail = _azureAuthManager.GetUserPrincipalName();
+                if (string.IsNullOrWhiteSpace(userEmail))
+                {
+                    return;
+                }
+                
+                // Fetch user's groups from the server
+                using var httpClient = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                var token = _azureAuthManager.GetAccessToken();
+                if (string.IsNullOrEmpty(token))
+                {
+                    return;
+                }
+                
+                var url = $"{baseUrl}/api/users/{Uri.EscapeDataString(userEmail)}/groups";
+                var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, url);
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                
+                var response = await httpClient.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var result = System.Text.Json.JsonSerializer.Deserialize<SystemGroupsResponse>(json, new System.Text.Json.JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    
+                    if (result?.Groups != null && _alertManager != null)
+                    {
+                        var groupIds = result.Groups.Select(g => g.Id).Where(id => !string.IsNullOrEmpty(id)).Select(id => id!).ToList();
+                        if (groupIds.Count > 0)
+                        {
+                            _alertManager.UpdateSystemGroups(groupIds);
+                            LogMessage($"Updated AlertManager with {groupIds.Count} Azure/Entra group(s) for group-based alert filtering");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error fetching system groups: {ex.Message}");
+            }
+        }
+        
+        private class SystemGroupsResponse
+        {
+            public List<GroupInfo>? Groups { get; set; }
+        }
+        
+        private class GroupInfo
+        {
+            public string? Id { get; set; }
+            public string? DisplayName { get; set; }
+        }
+        
         protected override void OnClosed(EventArgs e)
         {
             // Unregister global hotkeys

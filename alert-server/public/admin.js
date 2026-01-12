@@ -99,6 +99,8 @@ function switchTab(tabName) {
         loadAudioFiles();
     } else if (tabName === 'settings') {
         loadSettings();
+        loadGridBannerUrl();
+        loadGlobalSettings();
     }
 }
 
@@ -201,6 +203,13 @@ function showNewAlertModal() {
                 </select>
             </div>
             <div class="form-group">
+                <label>Azure/Entra Groups (optional - select groups to target specific systems)</label>
+                <select id="alertGroups" multiple style="min-height: 100px;">
+                    <option value="">Loading groups...</option>
+                </select>
+                <small style="color: #666; font-size: 0.85em;">Hold Ctrl/Cmd to select multiple groups. Leave empty to target all systems.</small>
+            </div>
+            <div class="form-group">
                 <label>Alert Sound</label>
                 <select id="alertAudioFile">
                     <option value="">System Beep (default)</option>
@@ -232,11 +241,31 @@ function showNewAlertModal() {
     loadTemplatesForSelect('alertTemplate');
     loadSitesForSelect('alertSite');
     loadAudioFilesForSelect('alertAudioFile');
+    loadGroupsForSelect('alertGroups');
     loadSettingsForAlert();
+}
+
+async function loadGroupsForSelect(selectId) {
+    try {
+        const response = await apiCall('/groups');
+        const groups = response.groups || [];
+        const select = document.getElementById(selectId);
+        select.innerHTML = groups.map(g => `<option value="${g.id}">${g.displayName}</option>`).join('');
+    } catch (error) {
+        console.error('Error loading groups:', error);
+        const select = document.getElementById(selectId);
+        select.innerHTML = '<option value="">Error loading groups</option>';
+    }
 }
 
 async function createAlert(event) {
     event.preventDefault();
+    
+    // Get selected group IDs
+    const groupSelect = document.getElementById('alertGroups');
+    const selectedGroups = Array.from(groupSelect.selectedOptions)
+        .map(option => option.value)
+        .filter(id => id);
     
     const alert = {
         level: document.getElementById('alertLevel').value,
@@ -245,6 +274,7 @@ async function createAlert(event) {
         background_color: document.getElementById('alertBgColor').value,
         foreground_color: document.getElementById('alertFgColor').value,
         site: document.getElementById('alertSite').value || null,
+        target_groups: selectedGroups.length > 0 ? selectedGroups : null,
         audio_file: document.getElementById('alertAudioFile').value || null,
         alert_contact_name: document.getElementById('alertContactName').value || null,
         alert_contact_phone: document.getElementById('alertContactPhone').value || null,
@@ -613,41 +643,155 @@ async function deleteSite(siteId) {
 }
 
 // System Management
+let systemsSortBy = 'name'; // 'name', 'group', 'location'
+let systemsSortOrder = 'asc';
+
 async function loadSystems() {
     const container = document.getElementById('systemsList');
     container.innerHTML = '<div class="empty-state">Loading systems...</div>';
 
     try {
-        const data = await apiCall('/data');
-        const systems = Object.values(data.systems || {});
+        const systems = await apiCall('/systems');
 
         if (systems.length === 0) {
             container.innerHTML = '<div class="empty-state">No systems found</div>';
             return;
         }
 
-        container.innerHTML = systems.map(system => `
-            <div class="system-item">
-                <div class="item-header">
-                    <div class="item-title">${system.workstation_name}</div>
-                </div>
-                <div class="item-details">
-                    <div><strong>Username:</strong> ${system.username}</div>
-                    <div><strong>Classification:</strong> ${system.classification}</div>
-                    <div><strong>Location:</strong> ${system.location}</div>
-                    <div><strong>Company:</strong> ${system.company}</div>
-                    <div><strong>Compliance:</strong> ${system.compliance_status === 1 ? 'Compliant' : 'Non-Compliant'}</div>
-                    <div><strong>Last Seen:</strong> ${new Date(system.last_seen).toLocaleString()}</div>
-                </div>
+        // Sort systems
+        const sortedSystems = [...systems].sort((a, b) => {
+            let aVal, bVal;
+            if (systemsSortBy === 'group') {
+                const aGroups = (a.groups || []).map(g => g.displayName).join(', ') || 'No groups';
+                const bGroups = (b.groups || []).map(g => g.displayName).join(', ') || 'No groups';
+                aVal = aGroups.toLowerCase();
+                bVal = bGroups.toLowerCase();
+            } else if (systemsSortBy === 'location') {
+                aVal = (a.location || '').toLowerCase();
+                bVal = (b.location || '').toLowerCase();
+            } else {
+                aVal = (a.workstation_name || '').toLowerCase();
+                bVal = (b.workstation_name || '').toLowerCase();
+            }
+            
+            if (aVal < bVal) return systemsSortOrder === 'asc' ? -1 : 1;
+            if (aVal > bVal) return systemsSortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        container.innerHTML = `
+            <div style="margin-bottom: 15px;">
+                <label style="margin-right: 10px;">Sort by:</label>
+                <select id="systemsSortBy" onchange="changeSystemsSort()" style="padding: 5px; margin-right: 10px;">
+                    <option value="name" ${systemsSortBy === 'name' ? 'selected' : ''}>Name</option>
+                    <option value="group" ${systemsSortBy === 'group' ? 'selected' : ''}>Group</option>
+                    <option value="location" ${systemsSortBy === 'location' ? 'selected' : ''}>Location</option>
+                </select>
+                <button class="btn btn-secondary" onclick="toggleSystemsSortOrder()" style="padding: 5px 10px;">
+                    ${systemsSortOrder === 'asc' ? '↑' : '↓'}
+                </button>
             </div>
-        `).join('');
+            ${sortedSystems.map(system => {
+                const groups = system.groups || [];
+                const groupsDisplay = groups.length > 0 
+                    ? groups.map(g => `<span style="background: #e1f5ff; color: #0066cc; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; margin-right: 4px;">${g.displayName}</span>`).join('')
+                    : '<span style="color: #999; font-size: 0.8em;">No groups</span>';
+                
+                return `
+                <div class="system-item">
+                    <div class="item-header">
+                        <div class="item-title">${system.workstation_name}</div>
+                    </div>
+                    <div class="item-details">
+                        <div><strong>Username:</strong> ${system.username}</div>
+                        <div><strong>Classification:</strong> ${system.classification}</div>
+                        <div><strong>Location:</strong> ${system.location || 'N/A'}</div>
+                        <div><strong>Company:</strong> ${system.company}</div>
+                        <div><strong>Compliance:</strong> ${system.compliance_status === 1 ? 'Compliant' : 'Non-Compliant'}</div>
+                        <div style="margin-top: 8px;">
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 4px;"><strong>Azure/Entra Groups:</strong></div>
+                            <div>${groupsDisplay}</div>
+                        </div>
+                        <div><strong>Last Seen:</strong> ${new Date(system.last_seen).toLocaleString()}</div>
+                    </div>
+                </div>
+            `;
+            }).join('')}
+        `;
     } catch (error) {
         container.innerHTML = `<div class="error show">Error loading systems: ${error.message}</div>`;
     }
 }
 
+function changeSystemsSort() {
+    systemsSortBy = document.getElementById('systemsSortBy').value;
+    loadSystems();
+}
+
+function toggleSystemsSortOrder() {
+    systemsSortOrder = systemsSortOrder === 'asc' ? 'desc' : 'asc';
+    loadSystems();
+}
+
 // Settings Management
+async function loadGridBannerUrl() {
+    try {
+        const response = await apiCall('/admin/gridbanner-url');
+        document.getElementById('gridbannerUrl').value = response.gridbanner_url || '';
+    } catch (error) {
+        console.error('Error loading GridBanner URL:', error);
+    }
+}
+
+async function saveGridBannerUrl() {
+    try {
+        const gridbannerUrl = document.getElementById('gridbannerUrl').value;
+        await apiCall('/admin/gridbanner-url', 'POST', { gridbanner_url: gridbannerUrl });
+        showMessage('GridBanner URL saved successfully', 'success');
+    } catch (error) {
+        showMessage(`Error saving GridBanner URL: ${error.message}`, 'error');
+    }
+}
+
+async function loadGlobalSettings() {
+    try {
+        const settings = await apiCall('/admin/global-settings');
+        document.getElementById('globalTripleClickEnabled').checked = settings.triple_click_enabled === true;
+        document.getElementById('globalTerminateEnabled').checked = settings.terminate_enabled === true;
+        document.getElementById('globalKeyringEnabled').checked = settings.keyring_enabled === true;
+        document.getElementById('globalTrayOnlyMode').checked = settings.tray_only_mode === true;
+    } catch (error) {
+        console.error('Error loading global settings:', error);
+    }
+}
+
+async function saveGlobalSettings() {
+    try {
+        const settings = {};
+        
+        // Only include settings that are explicitly set (checked = true, unchecked = false)
+        // We'll send true/false, and the server can store null if we want to clear a setting
+        const tripleClick = document.getElementById('globalTripleClickEnabled');
+        const terminate = document.getElementById('globalTerminateEnabled');
+        const keyring = document.getElementById('globalKeyringEnabled');
+        const trayOnly = document.getElementById('globalTrayOnlyMode');
+        
+        // For now, send true/false. To clear a setting, we'd need a "clear" button or three-state checkbox
+        settings.triple_click_enabled = tripleClick.checked;
+        settings.terminate_enabled = terminate.checked;
+        settings.keyring_enabled = keyring.checked;
+        settings.tray_only_mode = trayOnly.checked;
+        
+        await apiCall('/admin/global-settings', 'POST', settings);
+        showMessage('Global settings saved successfully', 'success');
+    } catch (error) {
+        showMessage(`Error saving global settings: ${error.message}`, 'error');
+    }
+}
+
 async function loadSettings() {
+    loadGridBannerUrl();
+    loadGlobalSettings();
     try {
         const data = await apiCall('/data');
         const settings = data.settings || {};
@@ -939,7 +1083,13 @@ async function loadUsers() {
             return;
         }
         
-        container.innerHTML = users.map(user => `
+        container.innerHTML = users.map(user => {
+            const groups = user.groups || [];
+            const groupsDisplay = groups.length > 0 
+                ? groups.map(g => `<span style="background: #e1f5ff; color: #0066cc; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; margin-right: 4px;">${g.displayName}</span>`).join('')
+                : '<span style="color: #999; font-size: 0.8em;">No groups</span>';
+            
+            return `
             <div class="user-item" style="border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 4px;">
                 <div class="item-header" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
@@ -954,9 +1104,14 @@ async function loadUsers() {
                         <button class="btn btn-danger" onclick="deleteUser('${encodeURIComponent(user.username)}')">Delete</button>
                     </div>
                 </div>
+                <div style="margin-top: 8px;">
+                    <div style="font-size: 0.85em; color: #666; margin-bottom: 4px;"><strong>Azure/Entra Groups:</strong></div>
+                    <div>${groupsDisplay}</div>
+                </div>
                 ${user.last_seen ? `<div style="color: #999; font-size: 0.8em; margin-top: 5px;">Last seen: ${new Date(user.last_seen).toLocaleString()}</div>` : ''}
             </div>
-        `).join('');
+        `;
+        }).join('');
     } catch (error) {
         container.innerHTML = `<div class="error">Error loading users: ${error.message}</div>`;
     }

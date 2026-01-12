@@ -66,3 +66,8 @@ Thumbs.db
 # Config files (optional - remove if you want to track configs)
 # conf.ini
 
+# Sensitive configuration files
+alert-server/config.json
+*.secret
+*.key
+

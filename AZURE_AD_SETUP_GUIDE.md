@@ -99,7 +99,45 @@ After registration, you'll see the **Overview** page. Here's what you need:
    - **State**: Enabled
 6. Click **Add scope**
 
-### 2.3 Get API Configuration Values
+### 2.3 Add Microsoft Graph API Permissions (Required for Group Queries)
+
+**CRITICAL**: The API app needs Microsoft Graph API permissions to read user groups and group memberships. This is required for the group-based features.
+
+1. In the left sidebar, click **API permissions**
+2. Click **+ Add a permission**
+3. Select **Microsoft Graph**
+4. Select **Application permissions** (NOT Delegated permissions - this is important!)
+5. Add the following permissions:
+   - `User.Read.All` - Read all users' full profiles
+   - `GroupMember.Read.All` - Read all group memberships
+   - `Group.Read.All` - Read all groups
+   - `Directory.Read.All` - Read directory data (optional but recommended for full functionality)
+6. Click **Add permissions**
+7. **CRITICAL**: Click **Grant admin consent for [Your Organization]**
+   - This button is at the top of the API permissions page
+   - You must be a Global Administrator or have permission to grant consent
+   - You should see green checkmarks next to each permission after granting consent
+   - The status should show "Granted for [Your Organization]" with a green checkmark
+8. Verify all permissions show "Granted for [Your Organization]" with a green checkmark
+
+**Note**: If you don't grant admin consent, you'll get "Insufficient privileges to complete the operation" errors when trying to fetch groups.
+
+### 2.4 Create a Client Secret
+
+The API app needs a client secret for service principal authentication:
+
+1. In the left sidebar, click **Certificates & secrets**
+2. Click **+ New client secret**
+3. Fill in:
+   - **Description**: `GridBanner Alert Server` (or any description)
+   - **Expires**: Choose an expiration (recommend 24 months or Never)
+4. Click **Add**
+5. **IMPORTANT**: Copy the **Value** immediately (you won't be able to see it again!)
+   - This is your `azure_client_secret` for the alert-server config
+   - Store it securely
+   - If you lose it, you'll need to create a new secret
+
+### 2.5 Get API Configuration Values
 
 1. Go to **Overview** page
 2. **Application (client) ID** - Copy this value
@@ -151,13 +189,18 @@ Add these values to your server's config.json:
 
 ```json
 {
+  "admin_key": "adminkey",
   "azure_auth_enabled": true,
   "azure_tenant_id": "87654321-4321-4321-4321-cba987654321",
-  "azure_client_id": "98765432-5678-5678-5678-987654321def"
+  "azure_client_id": "98765432-5678-5678-5678-987654321def",
+  "azure_client_secret": "your-client-secret-value-here"
 }
 ```
 
-**Note**: The server's `azure_client_id` is the **API app's client ID**, not the desktop client's ID.
+**Note**: 
+- The server's `azure_client_id` is the **API app's client ID**, not the desktop client's ID.
+- The `azure_client_secret` is the client secret you created in step 2.4.
+- Keep the client secret secure and never commit it to version control!
 
 ## Step 5: Install Server Dependencies
 
@@ -192,6 +235,18 @@ This will install the new dependencies (`jsonwebtoken` and `jwks-rsa`).
 - Make sure you've added the API permission to the client app
 - Grant admin consent if required
 - Check that the scope name matches what you exposed
+
+### "Insufficient privileges to complete the operation" error (Group Queries)
+- **This is the most common issue!** The API app needs Microsoft Graph API permissions
+- Go to your API app registration → **API permissions**
+- Add **Application permissions** (not Delegated) for:
+  - `User.Read.All`
+  - `GroupMember.Read.All`
+  - `Group.Read.All`
+  - `Directory.Read.All` (optional)
+- **CRITICAL**: Click **Grant admin consent for [Your Organization]**
+- Verify all permissions show green checkmarks with "Granted for [Your Organization]"
+- Restart the alert-server after granting permissions
 
 ### "User mismatch" error
 - The username in the API call must match the authenticated user's UPN/email

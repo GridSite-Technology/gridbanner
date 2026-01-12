@@ -375,7 +375,46 @@
         </div>
 
         <div id="settingsTab" class="tab-content">
-            <h2>Default Contact Information</h2>
+            <h2>GridBanner Configuration</h2>
+            <div class="form-group">
+                <label for="gridbannerUrl">GridBanner URL</label>
+                <input type="url" id="gridbannerUrl" placeholder="https://example.com">
+                <small style="color: #666; font-size: 0.85em;">The hostname/URL that GridBanner clients will use to connect to this server.</small>
+            </div>
+            <button class="btn" onclick="saveGridBannerUrl()" style="margin-bottom: 30px;">Save GridBanner URL</button>
+            
+            <h2 style="margin-top: 30px;">Global Settings</h2>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="globalTripleClickEnabled" style="width: auto; margin-right: 8px;">
+                    Enable Triple-Click Menu
+                </label>
+                <small style="color: #666; font-size: 0.85em; display: block; margin-top: 4px;">Allow users to access menu via triple-click</small>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="globalTerminateEnabled" style="width: auto; margin-right: 8px;">
+                    Enable Terminate Command
+                </label>
+                <small style="color: #666; font-size: 0.85em; display: block; margin-top: 4px;">Allow users to terminate the application</small>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="globalKeyringEnabled" style="width: auto; margin-right: 8px;">
+                    Enable Keyring Feature
+                </label>
+                <small style="color: #666; font-size: 0.85em; display: block; margin-top: 4px;">Allow users to manage SSH keys</small>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="globalTrayOnlyMode" style="width: auto; margin-right: 8px;">
+                    Tray-Only Mode (Default)
+                </label>
+                <small style="color: #666; font-size: 0.85em; display: block; margin-top: 4px;">Start GridBanner in tray-only mode by default</small>
+            </div>
+            <button class="btn" onclick="saveGlobalSettings()" style="margin-bottom: 30px;">Save Global Settings</button>
+            
+            <h2 style="margin-top: 30px;">Default Contact Information</h2>
             <div class="form-group">
                 <label for="defaultContactName">Contact Name</label>
                 <input type="text" id="defaultContactName">
@@ -392,7 +431,7 @@
                 <label for="defaultContactTeams">Teams</label>
                 <input type="text" id="defaultContactTeams" placeholder="Email or Teams deep link">
             </div>
-            <button class="btn" onclick="saveSettings()">Save Settings</button>
+            <button class="btn" onclick="saveSettings()">Save Contact Settings</button>
         </div>
     </div>
 
