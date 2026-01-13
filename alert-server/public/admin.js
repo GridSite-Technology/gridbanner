@@ -1,7 +1,175 @@
 // Admin interface for GridBanner Alert Server
 let apiKey = '';
+let azureToken = '';
+let msalInstance = null;
+let azureConfig = null;
 
-// Handle login
+// Show/hide login sections
+function showAdminKeyLogin() {
+    document.getElementById('azureLoginSection').style.display = 'none';
+    document.getElementById('adminKeySection').style.display = 'block';
+    document.getElementById('password').focus();
+}
+
+function showAzureLogin() {
+    document.getElementById('adminKeySection').style.display = 'none';
+    document.getElementById('azureLoginSection').style.display = 'block';
+}
+
+// Load Azure AD config
+async function loadAzureConfig() {
+    try {
+        const response = await fetch('/api/auth/config');
+        azureConfig = await response.json();
+        
+        if (azureConfig.enabled && azureConfig.clientId) {
+            // Initialize MSAL
+            // For popup flow, redirectUri should match what's registered in Azure AD
+            // For web apps, use the current page URL
+            // For native/desktop apps, typically use http://localhost
+            // We'll try the current origin first, but this must be registered in Azure AD
+            const redirectUri = window.location.origin + window.location.pathname;
+            
+            const msalConfig = {
+                auth: {
+                    clientId: azureConfig.clientId,
+                    authority: `https://login.microsoftonline.com/${azureConfig.tenantId}`,
+                    redirectUri: redirectUri,
+                    postLogoutRedirectUri: redirectUri
+                },
+                cache: {
+                    cacheLocation: 'sessionStorage',
+                    storeAuthStateInCookie: false
+                }
+            };
+            
+            console.log('MSAL configured:');
+            console.log('  Client ID:', azureConfig.clientId);
+            console.log('  Redirect URI:', redirectUri);
+            console.log('  Authority:', msalConfig.auth.authority);
+            
+            msalInstance = new msal.PublicClientApplication(msalConfig);
+            await msalInstance.initialize();
+            
+            // Check if user is already logged in
+            const accounts = msalInstance.getAllAccounts();
+            if (accounts.length > 0) {
+                // Try to get token silently
+                try {
+                    const tokenResponse = await msalInstance.acquireTokenSilent({
+                        scopes: [`api://${azureConfig.apiClientId}/.default`],
+                        account: accounts[0]
+                    });
+                    console.log('Silent token acquisition successful');
+                    await handleAzureToken(tokenResponse.accessToken);
+                } catch (error) {
+                    console.log('Silent token acquisition failed, user needs to login:', error.message);
+                    // Clear the account if silent acquisition fails
+                    if (error.errorCode === 'interaction_required' || error.errorCode === 'consent_required') {
+                        msalInstance.clearCache();
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load Azure AD config:', error);
+    }
+}
+
+// Handle Azure AD login
+async function handleAzureLogin() {
+    if (!msalInstance || !azureConfig) {
+        const errorEl = document.getElementById('errorMessage');
+        errorEl.textContent = 'Azure AD authentication is not configured.';
+        errorEl.classList.add('show');
+        setTimeout(() => {
+            errorEl.classList.remove('show');
+        }, 3000);
+        return;
+    }
+    
+    try {
+        const redirectUri = window.location.origin + window.location.pathname;
+        
+        const loginRequest = {
+            scopes: [`api://${azureConfig.apiClientId}/.default`],
+            prompt: 'select_account',
+            redirectUri: redirectUri // Explicitly set redirect URI in request
+        };
+        
+        console.log('Initiating Azure AD login:');
+        console.log('  Redirect URI:', redirectUri);
+        console.log('  Scopes:', loginRequest.scopes);
+        
+        const loginResponse = await msalInstance.loginPopup(loginRequest);
+        await handleAzureToken(loginResponse.accessToken);
+    } catch (error) {
+        console.error('Azure AD login failed:', error);
+        const errorEl = document.getElementById('errorMessage');
+        const currentRedirectUri = window.location.origin + window.location.pathname;
+        
+        if (error.errorCode === 'user_cancelled') {
+            errorEl.textContent = 'Login cancelled.';
+        } else if (error.errorCode === 'AADSTS500113' || error.message?.includes('AADSTS500113')) {
+            errorEl.innerHTML = `
+                <strong>Redirect URI not registered in Azure AD</strong><br>
+                Please add this redirect URI to your Desktop Client app registration:<br>
+                <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">${currentRedirectUri}</code><br><br>
+                <small>In Azure Portal: App registrations → Your Desktop Client App → Authentication → Add a platform → Web → Add this URI</small>
+            `;
+        } else {
+            errorEl.textContent = 'Azure AD login failed: ' + (error.message || error.errorCode || 'Unknown error');
+        }
+        errorEl.classList.add('show');
+        setTimeout(() => {
+            errorEl.classList.remove('show');
+        }, 10000);
+    }
+}
+
+// Handle Azure AD token
+async function handleAzureToken(token) {
+    const errorEl = document.getElementById('errorMessage');
+    
+    try {
+        // Validate token with server
+        const response = await fetch('/api/admin/login', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Authentication failed');
+        }
+        
+        const result = await response.json();
+        
+        // Store token for subsequent requests
+        azureToken = token;
+        apiKey = ''; // Clear admin key
+        
+        // Hide login, show main interface
+        document.getElementById('loginContainer').style.display = 'none';
+        document.getElementById('mainContainer').style.display = 'block';
+        document.body.classList.remove('login-mode');
+        document.body.classList.add('main-mode');
+        
+        // Load all data
+        loadAllData();
+    } catch (error) {
+        errorEl.textContent = error.message || 'Authentication failed. Please try again.';
+        errorEl.classList.add('show');
+        setTimeout(() => {
+            errorEl.classList.remove('show');
+        }, 5000);
+    }
+}
+
+// Handle admin key login
 async function handleLogin(event) {
     event.preventDefault();
     const password = document.getElementById('password').value;
@@ -16,6 +184,7 @@ async function handleLogin(event) {
         
         // Store the password as API key for subsequent requests
         apiKey = password;
+        azureToken = ''; // Clear Azure token
         
         // Hide login, show main interface
         document.getElementById('loginContainer').style.display = 'none';
@@ -40,10 +209,23 @@ async function apiCall(endpoint, method = 'GET', body = null) {
     const options = {
         method,
         headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': apiKey
+            'Content-Type': 'application/json'
         }
     };
+
+    // Use Azure AD token if available, otherwise use admin key
+    if (azureToken) {
+        options.headers['Authorization'] = `Bearer ${azureToken}`;
+    } else if (apiKey) {
+        options.headers['X-API-Key'] = apiKey;
+    } else {
+        // No authentication - redirect to login
+        document.getElementById('loginContainer').style.display = 'block';
+        document.getElementById('mainContainer').style.display = 'none';
+        document.body.classList.remove('main-mode');
+        document.body.classList.add('login-mode');
+        throw new Error('Not authenticated. Please login.');
+    }
 
     if (body) {
         options.body = JSON.stringify(body);
@@ -52,13 +234,21 @@ async function apiCall(endpoint, method = 'GET', body = null) {
     const response = await fetch(url, options);
     
     if (!response.ok) {
-        if (response.status === 401) {
-            // Unauthorized - redirect to login
+        if (response.status === 401 || response.status === 403) {
+            // Unauthorized - clear tokens and redirect to login
             document.getElementById('loginContainer').style.display = 'block';
             document.getElementById('mainContainer').style.display = 'none';
             document.body.classList.remove('main-mode');
             document.body.classList.add('login-mode');
             apiKey = '';
+            azureToken = '';
+            if (msalInstance) {
+                try {
+                    msalInstance.clearCache();
+                } catch (e) {
+                    console.log('Error clearing MSAL cache:', e);
+                }
+            }
             throw new Error('Session expired. Please login again.');
         }
         const errorText = await response.text();
@@ -1117,6 +1307,11 @@ async function loadUsers() {
     }
 }
 
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadAzureConfig();
+});
+
 async function showUserKeys(encodedUsername) {
     const username = decodeURIComponent(encodedUsername);
     
@@ -1182,6 +1377,90 @@ async function deleteUser(encodedUsername) {
         loadUsers();
     } catch (error) {
         showMessage(`Error deleting user: ${error.message}`, 'error');
+    }
+}
+
+// Keyfile Generation Functions
+async function showCreateKeyfileModal() {
+    const modal = document.getElementById('createKeyfileModal');
+    modal.classList.add('active');
+    
+    // Load groups
+    await loadKeyfileGroups();
+}
+
+function closeCreateKeyfileModal() {
+    const modal = document.getElementById('createKeyfileModal');
+    modal.classList.remove('active');
+}
+
+async function loadKeyfileGroups() {
+    const container = document.getElementById('keyfileGroupsList');
+    container.innerHTML = '<div class="loading">Loading groups...</div>';
+    
+    try {
+        const response = await apiCall('/groups');
+        const groups = response.groups || [];
+        
+        if (groups.length === 0) {
+            container.innerHTML = '<div style="color: #666; padding: 10px;">No Azure/Entra groups found.</div>';
+            return;
+        }
+        
+        container.innerHTML = groups.map(group => `
+            <label style="display: block; padding: 8px; margin: 4px 0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
+                <input type="checkbox" value="${group.id}" style="margin-right: 8px;">
+                <strong>${group.displayName}</strong>
+                <span style="color: #666; font-size: 0.85em; margin-left: 8px;">(${group.id.substring(0, 8)}...)</span>
+            </label>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = `<div class="error">Error loading groups: ${error.message}</div>`;
+    }
+}
+
+function getSelectedKeyfileGroups() {
+    const checkboxes = document.querySelectorAll('#keyfileGroupsList input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+async function generateKeyfile() {
+    const selectedGroups = getSelectedKeyfileGroups();
+    
+    try {
+        let url = '/api/authorized-keys';
+        if (selectedGroups.length > 0) {
+            url += '?groups=' + selectedGroups.join(',');
+        }
+        
+        const response = await fetch(url, {
+            headers: {
+                'X-API-Key': apiKey
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to generate keyfile');
+        }
+        
+        const keyfileContent = await response.text();
+        
+        // Create download
+        const blob = new Blob([keyfileContent], { type: 'text/plain' });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = 'authorized_keys';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(downloadUrl);
+        
+        showMessage('Keyfile generated and downloaded successfully!', 'success');
+        closeCreateKeyfileModal();
+    } catch (error) {
+        showMessage(`Error generating keyfile: ${error.message}`, 'error');
     }
 }
 

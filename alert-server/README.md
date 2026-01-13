@@ -1,176 +1,306 @@
 # GridBanner Alert Server
 
-GridBanner includes a centralized alert management server (`alert-server`) that provides:
-
-- **Web-based admin interface** for managing alerts
-- **Template system** for reusable alert configurations
-- **Site management** for organizing workstations by location
-- **System monitoring** to track all connected GridBanner workstations
-- **Audio file management** for custom alert sounds
-- **REST API** for programmatic alert management
-
-## Installation
-
-1. **Install Node.js** (v14 or later):
-   - Download from [nodejs.org](https://nodejs.org/)
-
-2. **Install dependencies:**
-   ```bash
-   cd alert-server
-   npm install
-   ```
-
-3. **Start the server:**
-   ```bash
-   npm start
-   ```
-
-   Server runs on `http://localhost:3000` by default.
-
-## Configuration
-
-The server uses `config.json` for configuration:
-
-```json
-{
-  "admin_key": "your-secret-key-here"
-}
-```
-
-**Environment Variables:**
-- `PORT`: Server port (default: `3000`)
-- `ADMIN_KEY`: Admin authentication key (default: `adminkey`)
-- `ALERT_FILE`: Path to alert JSON file (default: `./alerts/current.json`)
-
-## Web Interface
-
-Access the admin interface at `http://localhost:3000` (or your server URL).
-
-**Features:**
-- **Alerts Tab**: Create and send one-time alerts
-  - Select from templates or create custom alerts
-  - Choose target sites (all sites or specific sites)
-  - Preview colors and test alerts
-- **Templates Tab**: Create, edit, and manage alert templates
-  - Save common alert configurations for reuse
-  - Edit templates with full alert customization
-- **Sites Tab**: Manage site definitions
-  - Create, edit, and delete sites
-  - Sites are used for filtering alerts to specific workstations
-- **Systems Tab**: Monitor connected GridBanner workstations
-  - View all workstations that have reported in
-  - See last seen time, user info, classification, location, company
-  - View compliance status and classification colors
-  - Filter, sort, and paginate system list
-- **Settings Tab**: Configure server settings
-  - Change admin key
-  - Set default contact information
-  - Manage audio files (upload, rename, delete)
-
-## API Endpoints
-
-**Public Endpoints (no authentication):**
-- `GET /api/alert` - Get current alert (used by GridBanner clients)
-- `GET /api/audio/:id/download` - Download audio file (used by GridBanner clients)
-
-**Admin Endpoints (require `X-Admin-Key` header):**
-- `POST /api/alert` - Create or update alert
-- `DELETE /api/alert` - Clear current alert
-- `GET /api/systems` - List all connected systems
-- `GET /api/sites` - List all sites
-- `POST /api/sites` - Create new site
-- `PUT /api/sites/:id` - Update site
-- `DELETE /api/sites/:id` - Delete site
-- `GET /api/templates` - List all templates
-- `POST /api/templates` - Create new template
-- `PUT /api/templates/:id` - Update template
-- `DELETE /api/templates/:id` - Delete template
-- `GET /api/settings` - Get server settings
-- `POST /api/settings` - Update server settings
-- `GET /api/audio` - List all audio files
-- `POST /api/audio` - Upload audio file
-- `PUT /api/audio/:id` - Rename audio file
-- `DELETE /api/audio/:id` - Delete audio file
-- `GET /api/admin/key` - Get current admin key
-- `POST /api/admin/key` - Update admin key
+Node.js/Express server for managing GridBanner alerts, user keyrings, and system information.
 
 ## Features
 
-### Templates
+- **Alert Management**: Create and manage alerts that display on GridBanner clients
+- **User Keyring**: Centralized SSH public key management with Azure AD integration
+- **System Registration**: Track GridBanner client systems and their status
+- **Azure AD Integration**: Group-based targeting and user authentication
+- **Authorized Keys Generation**: Generate `authorized_keys` files for groups
 
-- Create reusable alert configurations
-- Include all alert fields (level, colors, message, site, contacts, audio)
-- Use templates to quickly send common alerts
+## Installation
 
-### Site Management
-
-- Define sites (e.g., "HQ", "Remote", "Lab")
-- Workstations are associated with sites via their `site_name` config
-- Send alerts to specific sites or all sites
-
-### System Monitoring
-
-- Automatically tracks all GridBanner workstations that poll the server
-- Displays:
-  - Workstation name and username
-  - Classification level and colors
-  - Location (primary location with badge for multiple)
-  - Company name
-  - Compliance status (color-coded)
-  - Last seen timestamp
-- Filtering, sorting, and pagination support
-
-### Audio File Management
-
-- Upload custom audio files (MP3, WAV, etc.)
-- Rename and delete audio files
-- Select audio files when creating alerts/templates
-- GridBanner clients automatically download audio files when needed
-
-### Default Contact Information
-
-- Set default contact info in Settings
-- Automatically populated when creating new alerts/templates
-- Can be overridden per alert
-
-## GridBanner Client Configuration
-
-Configure GridBanner workstations to use the alert server:
-
-```ini
-[Alerts]
-alert_url = http://your-server:3000/api/alert
-alert_poll_seconds = 5
+1. Install Node.js (v16 or higher)
+2. Install dependencies:
+```bash
+npm install
 ```
 
-**How it works:**
-1. GridBanner polls the server every `alert_poll_seconds` seconds
-2. On each poll, GridBanner sends system information (workstation name, user, classification, location, company, colors, compliance status)
-3. Server returns current alert (if any)
-4. GridBanner displays the alert if it matches the workstation's site configuration
+3. Configure the server by creating `config.json`:
+```json
+{
+  "admin_key": "your-admin-key-here",
+  "azure_auth_enabled": true,
+  "azure_tenant_id": "your-tenant-id",
+  "azure_client_id": "your-api-client-id",
+  "azure_client_secret": "your-client-secret"
+}
+```
 
-## BannerManager Integration
+4. Start the server:
+```bash
+npm start
+```
 
-BannerManager can connect to the alert server:
+The server will run on port 3000 by default.
 
-1. Open BannerManager
-2. Configure **Server URL**: `http://your-server:3000`
-3. Configure **Admin Key**: Your server admin key
-4. Use **Trigger Alert** or **Clear Alert** - operations use the server API
+## Azure AD Configuration
 
-## Security
+### Required Microsoft Graph API Permissions
 
-**Important Security Considerations:**
-- The server is designed for **internal/trusted networks**
-- Admin key should be kept **secret** and changed from default
-- Consider using **HTTPS** in production (via reverse proxy)
-- Restrict network access via **firewall rules** if needed
-- The web interface requires admin key authentication
-- API endpoints require `X-Admin-Key` header for write operations
+The alert-server requires **Application permissions** (not Delegated) to read user and group information from Azure AD. These permissions must be granted with **admin consent**.
 
-**Production Deployment Recommendations:**
-1. Set a strong `ADMIN_KEY` environment variable
-2. Use a reverse proxy (nginx, IIS) for HTTPS
-3. Configure firewall rules to restrict access
-4. Consider running as a Windows service or systemd service
-5. Regularly update Node.js and dependencies
+#### Step-by-Step Permission Setup
+
+1. Go to [Azure Portal](https://portal.azure.com) → **Azure Active Directory** → **App registrations**
+2. Find your **GridBanner API** app registration (the one with the client secret)
+3. Click **API permissions** in the left sidebar
+4. Click **+ Add a permission**
+5. Select **Microsoft Graph**
+6. Select **Application permissions** (NOT Delegated permissions - this is critical!)
+7. Add the following permissions:
+   - `User.Read.All` - Read all users' full profiles
+   - `GroupMember.Read.All` - Read all group memberships
+   - `Group.Read.All` - Read all groups
+   - `Directory.Read.All` - Read directory data (recommended for full functionality)
+8. Click **Add permissions**
+9. **CRITICAL**: Click **Grant admin consent for [Your Organization]**
+   - This button is at the top of the API permissions page
+   - You must be a Global Administrator or have permission to grant consent
+   - Confirm the consent
+10. Verify all permissions show "Granted for [Your Organization]" with a green checkmark
+
+#### Why Application Permissions?
+
+The alert-server uses **service principal authentication** (client secret) to access Microsoft Graph API. This requires Application permissions, not Delegated permissions. Application permissions allow the server to read directory information without a signed-in user.
+
+#### Troubleshooting Permission Issues
+
+If you see errors like "Insufficient privileges to complete the operation":
+- Verify you added **Application permissions** (not Delegated)
+- Verify you clicked **Grant admin consent**
+- Check that all permissions show green checkmarks
+- Wait 1-2 minutes after granting consent for changes to propagate
+- Restart the alert-server after granting permissions
+
+## API Endpoints
+
+### Authentication
+
+Most endpoints require authentication via:
+- **Admin Key**: Pass as `X-API-Key` header or `?key=` query parameter
+- **Azure AD Token**: For user-specific endpoints, pass as `Authorization: Bearer <token>` header
+
+### Authorized Keys Endpoints
+
+#### Generate Authorized Keys by Group Name
+
+**Endpoint**: `GET /api/authorized-keys/group/:groupName`
+
+Generate an `authorized_keys` file containing all verified SSH public keys from users in a specific Azure AD group.
+
+**Authentication**: Admin key required (via query param or header)
+
+**Parameters**:
+- `groupName` (URL parameter): The display name of the Azure AD group
+- `key` (query parameter, optional): Admin key (alternative to header)
+
+**Headers**:
+- `X-API-Key`: Admin key (alternative to query parameter)
+
+**Example with wget**:
+```bash
+wget "http://your-server:3000/api/authorized-keys/group/Developers?key=adminkey" -O authorized_keys
+```
+
+**Example with curl**:
+```bash
+curl -H "X-API-Key: adminkey" "http://your-server:3000/api/authorized-keys/group/Developers" > authorized_keys
+```
+
+**Example with query parameter**:
+```bash
+curl "http://your-server:3000/api/authorized-keys/group/Developers?key=adminkey" > authorized_keys
+```
+
+**Response**:
+- **Success (200)**: Plain text file in `authorized_keys` format
+- **Not Found (404)**: JSON error if group name not found
+- **Unauthorized (401)**: JSON error if admin key is missing or invalid
+
+**Response Format**:
+```
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAA... user1@example.com
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user2@example.com
+```
+
+**Features**:
+- Includes only verified keys (keys that have been validated via challenge/response)
+- Uses transitive group membership (includes users from nested groups)
+- Returns empty file with comment if group has no users or no keys
+- Suitable for automation scripts and cron jobs
+
+**Use Cases**:
+- Automated `authorized_keys` file updates on servers
+- Group-based SSH access control
+- CI/CD pipeline key management
+- Server provisioning scripts
+
+#### Generate Authorized Keys by Group IDs
+
+**Endpoint**: `GET /api/authorized-keys`
+
+Generate an `authorized_keys` file with optional group filtering.
+
+**Authentication**: Admin key required
+
+**Query Parameters**:
+- `groups` (optional): Comma-separated list of group IDs to filter by
+  - Example: `?groups=groupId1,groupId2`
+  - If omitted, returns keys for all users
+
+**Example**:
+```bash
+curl -H "X-API-Key: adminkey" "http://your-server:3000/api/authorized-keys?groups=abc-123,def-456" > authorized_keys
+```
+
+### User Keyring Endpoints
+
+#### Get User's Keys
+**Endpoint**: `GET /api/keyring/:username`
+
+Get all public keys for a specific user. Requires Azure AD authentication matching the username.
+
+#### Upload Key
+**Endpoint**: `POST /api/keyring/:username/keys`
+
+Upload a new public key. Requires proof of possession via challenge/response.
+
+#### Delete Key
+**Endpoint**: `DELETE /api/keyring/:username/keys/:keyId`
+
+Delete a specific key. Requires Azure AD authentication.
+
+### Admin Endpoints
+
+#### Get All Users
+**Endpoint**: `GET /api/users`
+
+Get list of all users with key counts and Azure AD group memberships. Requires admin key.
+
+#### Get User Groups
+**Endpoint**: `GET /api/users/:username/groups`
+
+Get Azure AD groups for a specific user. Requires admin key.
+
+#### Get All Groups
+**Endpoint**: `GET /api/groups`
+
+Get all Azure AD groups. Requires admin key.
+
+### Alert Endpoints
+
+#### Create Alert
+**Endpoint**: `POST /api/alert`
+
+Create a new alert. Supports group-based targeting via `target_groups` array.
+
+#### Get Current Alert
+**Endpoint**: `GET /api/alert/current`
+
+Get the currently active alert.
+
+## Configuration
+
+### config.json
+
+The server configuration file (`config.json`) should contain:
+
+```json
+{
+  "admin_key": "your-secure-admin-key",
+  "azure_auth_enabled": true,
+  "azure_tenant_id": "your-tenant-id",
+  "azure_client_id": "your-api-app-client-id",
+  "azure_client_secret": "your-api-app-client-secret"
+}
+```
+
+**Important**: 
+- Never commit `config.json` to version control (it's in `.gitignore`)
+- Keep the `admin_key` and `azure_client_secret` secure
+- The `azure_client_id` should be the **API app's Application ID**, not the desktop client's ID
+
+### Environment Variables
+
+You can also configure via environment variables:
+- `AZURE_TENANT_ID`
+- `AZURE_CLIENT_ID`
+- `AZURE_CLIENT_SECRET`
+- `AZURE_AUTH_ENABLED` (set to `"true"` to enable)
+
+## Security Notes
+
+- The admin key should be strong and kept secret
+- Azure AD client secrets should be rotated regularly
+- Use HTTPS in production (configure reverse proxy with SSL)
+- The `authorized_keys` endpoints require admin key authentication
+- User keyring endpoints require Azure AD token authentication
+
+## Troubleshooting
+
+### "Insufficient privileges to complete the operation"
+
+This error means the API app doesn't have the required Microsoft Graph permissions:
+1. Go to Azure Portal → App registrations → Your API app
+2. Click **API permissions**
+3. Verify you added **Application permissions** (not Delegated)
+4. Verify you clicked **Grant admin consent**
+5. Restart the alert-server
+
+### "Group not found" when using authorized-keys endpoint
+
+- Verify the group name matches exactly (case-sensitive)
+- Check that the group exists in Azure AD
+- Verify the API app has `Group.Read.All` permission
+
+### Groups showing as empty
+
+- Verify `GroupMember.Read.All` permission is granted
+- Check that admin consent was granted
+- Wait 1-2 minutes after granting permissions
+- Restart the alert-server
+
+### User not appearing in group after adding them
+
+**Important**: The server does NOT cache group memberships - it queries Azure AD directly every time. However, Azure AD has propagation delays:
+
+- **Direct group membership**: Usually appears within 1-3 minutes
+- **Nested group membership**: Can take 3-5 minutes
+- **Complex scenarios**: May take up to 15 minutes
+
+If you just added a user to a group:
+1. Wait 2-3 minutes for Azure AD to propagate the change
+2. Refresh the admin interface (it queries fresh each time)
+3. Check server logs to see what groups are actually being returned
+4. Verify in Azure Portal that the user is actually in the group
+
+See [AZURE_GROUPS_PROPAGATION.md](AZURE_GROUPS_PROPAGATION.md) for detailed information.
+
+## Development
+
+### Running in Development
+
+```bash
+npm start
+```
+
+The server will reload automatically on file changes if using `nodemon`.
+
+### Testing Endpoints
+
+You can test endpoints using curl:
+
+```bash
+# Health check
+curl http://localhost:3000/api/health
+
+# Get authorized keys for a group
+curl -H "X-API-Key: adminkey" "http://localhost:3000/api/authorized-keys/group/Developers"
+```
+
+## License
+
+See main project LICENSE file.

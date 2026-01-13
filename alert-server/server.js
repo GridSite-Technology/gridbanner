@@ -145,16 +145,81 @@ function validateAzureToken(req, res, next) {
     
     const token = authHeader.substring(7);
     
+    const expectedAudience = `api://${AZURE_CLIENT_ID}`;
+    const expectedIssuerV2 = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0`;
+    const expectedIssuerV1 = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/`;
+    const expectedIssuerV1Alt = `https://sts.windows.net/${AZURE_TENANT_ID}/`;
+    
+    // Accept both v1.0 and v2.0 issuers (Azure AD can issue tokens from either endpoint)
+    // We'll validate issuer manually after verification since jsonwebtoken only accepts string/array
     const options = {
-        audience: `api://${AZURE_CLIENT_ID}`,
-        issuer: `https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0`,
+        audience: expectedAudience,
+        issuer: false, // Disable issuer validation, we'll check it manually
         algorithms: ['RS256']
     };
     
+    // Debug: Log expected values on first token validation attempt
+    if (!validateAzureToken._debugLogged) {
+        console.log(`Token validation configured:`);
+        console.log(`  Expected audience: ${expectedAudience}`);
+        console.log(`  Accepted issuers:`);
+        console.log(`    - ${expectedIssuerV2} (v2.0)`);
+        console.log(`    - ${expectedIssuerV1} (v1.0)`);
+        console.log(`    - ${expectedIssuerV1Alt} (v1.0 alt)`);
+        console.log(`    - Any issuer starting with https://login.microsoftonline.com/${AZURE_TENANT_ID}/`);
+        console.log(`    - Any issuer starting with https://sts.windows.net/${AZURE_TENANT_ID}/`);
+        console.log(`  API Client ID (Application ID): ${AZURE_CLIENT_ID}`);
+        console.log(`  Tenant ID: ${AZURE_TENANT_ID}`);
+        validateAzureToken._debugLogged = true;
+    }
+    
     jwt.verify(token, getAzureSigningKey, options, (err, decoded) => {
         if (err) {
-            console.error('Token validation error:', err);
+            console.error('Token validation error:', err.message);
+            // Decode token without verification to see what it contains
+            try {
+                const decodedUnverified = jwt.decode(token, { complete: true });
+                if (decodedUnverified?.payload) {
+                    const payload = decodedUnverified.payload;
+                    console.error('Token details:');
+                    console.error(`  Expected audience: api://${AZURE_CLIENT_ID}`);
+                    console.error(`  Token audience: ${payload.aud || 'none'}`);
+                    console.error(`  Expected issuer: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0`);
+                    console.error(`  Token issuer: ${payload.iss || 'none'}`);
+                    console.error(`  Token tenant (tid): ${payload.tid || 'none'}`);
+                    console.error(`  Token scopes: ${payload.scp || payload.roles || 'none'}`);
+                    console.error(`  Token appid: ${payload.appid || 'none'}`);
+                    console.error(`  Token azp: ${payload.azp || 'none'}`);
+                    
+                    // Check if issuer is v1.0 instead of v2.0
+                    if (payload.iss && payload.iss.includes('/v1.0') && !payload.iss.includes('/v2.0')) {
+                        console.error('  NOTE: Token uses v1.0 endpoint, but server expects v2.0');
+                    }
+                    
+                    // Check if tenant ID matches
+                    if (payload.tid && payload.tid !== AZURE_TENANT_ID) {
+                        console.error(`  WARNING: Token tenant (${payload.tid}) does not match expected tenant (${AZURE_TENANT_ID})`);
+                    }
+                }
+            } catch (decodeErr) {
+                console.error(`  Could not decode token for debugging: ${decodeErr.message}`);
+            }
             return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        
+        // Manually validate issuer (accept v1.0, v2.0, and alternative formats)
+        const tokenIssuer = decoded.iss;
+        const isValidIssuer = tokenIssuer === expectedIssuerV2 || 
+                             tokenIssuer === expectedIssuerV1 ||
+                             tokenIssuer === expectedIssuerV1Alt ||
+                             (tokenIssuer && tokenIssuer.startsWith(`https://login.microsoftonline.com/${AZURE_TENANT_ID}/`)) ||
+                             (tokenIssuer && tokenIssuer.startsWith(`https://sts.windows.net/${AZURE_TENANT_ID}/`));
+        
+        if (!isValidIssuer) {
+            console.error(`Token issuer validation failed:`);
+            console.error(`  Token issuer: ${tokenIssuer}`);
+            console.error(`  Expected: ${expectedIssuerV2} or ${expectedIssuerV1} or ${expectedIssuerV1Alt}`);
+            return res.status(401).json({ error: 'Invalid token issuer' });
         }
         
         // Attach user info to request
@@ -165,8 +230,11 @@ function validateAzureToken(req, res, next) {
             name: decoded.name
         };
         
-        console.log(`Token validated for user: ${req.azureUser.upn} (OID: ${req.azureUser.oid})`);
-        next();
+            console.log(`[${new Date().toISOString()}] Token validated for user: ${req.azureUser.upn} (OID: ${req.azureUser.oid})`);
+            console.log(`[${new Date().toISOString()}]   Token audience: ${decoded.aud}`);
+            console.log(`[${new Date().toISOString()}]   Token issuer: ${decoded.iss}`);
+            console.log(`[${new Date().toISOString()}]   Token scopes: ${decoded.scp || decoded.roles || 'none'}`);
+            next();
     });
 }
 
@@ -259,17 +327,229 @@ async function saveAlert(alert) {
 }
 
 // API key authentication middleware
-function authenticate(req, res, next) {
+// Store active admin sessions (token -> user info)
+const adminSessions = new Map();
+
+// Authenticate middleware - accepts either admin key OR Azure AD token (for Global Admins)
+async function authenticate(req, res, next) {
     const apiKey = req.headers['x-api-key'];
-    if (!apiKey || apiKey !== config.admin_key) {
-        return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+    const authHeader = req.headers.authorization;
+    
+    // Check admin key first (backward compatible)
+    if (apiKey && apiKey === config.admin_key) {
+            req.isAdmin = true;
+            req.authMethod = 'admin_key';
+            console.log(`[${new Date().toISOString()}] Authenticated request using admin key from IP: ${req.ip || req.connection.remoteAddress}`);
+            return next();
     }
-    next();
+    
+    // Check for Azure AD token (for Global Administrators)
+    if (AZURE_AUTH_ENABLED && authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        
+        // Check if we have a cached session
+        if (adminSessions.has(token)) {
+            const session = adminSessions.get(token);
+            req.isAdmin = true;
+            req.authMethod = 'azure_ad';
+            req.azureUser = session.user;
+            console.log(`[${new Date().toISOString()}] Authenticated request from cached session: ${session.user.name || session.user.upn || session.user.email} (OID: ${session.user.oid})`);
+            return next();
+        }
+        
+        // Validate token and check if user is Global Administrator
+        try {
+            const expectedAudience = `api://${AZURE_CLIENT_ID}`;
+            const options = {
+                audience: expectedAudience,
+                issuer: false,
+                algorithms: ['RS256']
+            };
+            
+            const decoded = await new Promise((resolve, reject) => {
+                jwt.verify(token, getAzureSigningKey, options, (err, decoded) => {
+                    if (err) reject(err);
+                    else resolve(decoded);
+                });
+            });
+            
+            // Validate issuer
+            const tokenIssuer = decoded.iss;
+            const expectedIssuerV2 = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0`;
+            const expectedIssuerV1 = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/`;
+            const expectedIssuerV1Alt = `https://sts.windows.net/${AZURE_TENANT_ID}/`;
+            
+            const isValidIssuer = tokenIssuer === expectedIssuerV2 || 
+                                 tokenIssuer === expectedIssuerV1 ||
+                                 tokenIssuer === expectedIssuerV1Alt ||
+                                 (tokenIssuer && tokenIssuer.startsWith(`https://login.microsoftonline.com/${AZURE_TENANT_ID}/`)) ||
+                                 (tokenIssuer && tokenIssuer.startsWith(`https://sts.windows.net/${AZURE_TENANT_ID}/`));
+            
+            if (!isValidIssuer) {
+                return res.status(401).json({ error: 'Invalid token issuer' });
+            }
+            
+            // Check if user is Global Administrator
+            const userOid = decoded.oid;
+            const userName = decoded.upn || decoded.preferred_username || decoded.email || decoded.name || 'Unknown';
+            const userDisplayName = decoded.name || userName;
+            
+            console.log(`[${new Date().toISOString()}] Checking Global Administrator status for user: ${userDisplayName} (${userName}, OID: ${userOid})`);
+            
+            const isGlobalAdmin = await isGlobalAdministrator(userOid);
+            
+            if (!isGlobalAdmin) {
+                console.log(`[${new Date().toISOString()}] Access denied for user: ${userDisplayName} (${userName}, OID: ${userOid}) - Not a Global Administrator`);
+                return res.status(403).json({ error: 'Access denied. Global Administrator role required.' });
+            }
+            
+            console.log(`[${new Date().toISOString()}] Access granted to Global Administrator: ${userDisplayName} (${userName}, OID: ${userOid})`);
+            
+            // Cache the session
+            const userInfo = {
+                upn: decoded.upn || decoded.preferred_username,
+                email: decoded.email,
+                oid: userOid,
+                name: decoded.name
+            };
+            
+            adminSessions.set(token, {
+                user: userInfo,
+                expiresAt: decoded.exp * 1000 // Convert to milliseconds
+            });
+            
+            // Clean up expired sessions periodically
+            const now = Date.now();
+            for (const [sessionToken, session] of adminSessions.entries()) {
+                if (session.expiresAt < now) {
+                    adminSessions.delete(sessionToken);
+                }
+            }
+            
+            req.isAdmin = true;
+            req.authMethod = 'azure_ad';
+            req.azureUser = userInfo;
+            
+            console.log(`[${new Date().toISOString()}] Admin access granted via Azure AD for Global Administrator: ${userInfo.name || userInfo.upn || userInfo.email} (OID: ${userInfo.oid})`);
+            return next();
+            
+        } catch (error) {
+            console.error('Azure AD admin authentication failed:', error.message);
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+    }
+    
+    // No valid authentication method found
+    return res.status(401).json({ error: 'Unauthorized: Invalid API key or token' });
 }
 
 // Health check (no auth required)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Get Azure AD config for frontend (public, no auth required)
+app.get('/api/auth/config', (req, res) => {
+    if (!AZURE_AUTH_ENABLED) {
+        return res.json({ enabled: false });
+    }
+    
+    // Return config needed for frontend authentication
+    // We need the DESKTOP client ID for MSAL (public client)
+    // This should be configured in config.json as azure_desktop_client_id
+    const desktopClientId = config?.azure_desktop_client_id || process.env.AZURE_DESKTOP_CLIENT_ID;
+    
+    res.json({
+        enabled: true,
+        tenantId: AZURE_TENANT_ID,
+        clientId: desktopClientId, // Desktop client ID for MSAL
+        apiClientId: AZURE_CLIENT_ID, // API client ID for token audience
+    });
+});
+
+// Admin login endpoint - validates Azure AD token and returns session info
+app.post('/api/admin/login', async (req, res) => {
+    try {
+        if (!AZURE_AUTH_ENABLED) {
+            return res.status(400).json({ error: 'Azure AD authentication is not enabled' });
+        }
+        
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+        }
+        
+        const token = authHeader.substring(7);
+        const expectedAudience = `api://${AZURE_CLIENT_ID}`;
+        const options = {
+            audience: expectedAudience,
+            issuer: false,
+            algorithms: ['RS256']
+        };
+        
+        const decoded = await new Promise((resolve, reject) => {
+            jwt.verify(token, getAzureSigningKey, options, (err, decoded) => {
+                if (err) reject(err);
+                else resolve(decoded);
+            });
+        });
+        
+        // Validate issuer
+        const tokenIssuer = decoded.iss;
+        const expectedIssuerV2 = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0`;
+        const expectedIssuerV1 = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/`;
+        const expectedIssuerV1Alt = `https://sts.windows.net/${AZURE_TENANT_ID}/`;
+        
+        const isValidIssuer = tokenIssuer === expectedIssuerV2 || 
+                             tokenIssuer === expectedIssuerV1 ||
+                             tokenIssuer === expectedIssuerV1Alt ||
+                             (tokenIssuer && tokenIssuer.startsWith(`https://login.microsoftonline.com/${AZURE_TENANT_ID}/`)) ||
+                             (tokenIssuer && tokenIssuer.startsWith(`https://sts.windows.net/${AZURE_TENANT_ID}/`));
+        
+        if (!isValidIssuer) {
+            return res.status(401).json({ error: 'Invalid token issuer' });
+        }
+        
+        // Check if user is Global Administrator
+        const userOid = decoded.oid;
+        const userName = decoded.upn || decoded.preferred_username || decoded.email || decoded.name || 'Unknown';
+        const userDisplayName = decoded.name || userName;
+        
+        console.log(`[${new Date().toISOString()}] Admin login attempt for user: ${userDisplayName} (${userName}, OID: ${userOid})`);
+        
+        const isGlobalAdmin = await isGlobalAdministrator(userOid);
+        
+        if (!isGlobalAdmin) {
+            console.log(`[${new Date().toISOString()}] Admin login denied for user: ${userDisplayName} (${userName}, OID: ${userOid}) - Not a Global Administrator`);
+            return res.status(403).json({ error: 'Access denied. Global Administrator role required.' });
+        }
+        
+        console.log(`[${new Date().toISOString()}] Admin login successful for Global Administrator: ${userDisplayName} (${userName}, OID: ${userOid})`);
+        
+        // Cache the session
+        const userInfo = {
+            upn: decoded.upn || decoded.preferred_username,
+            email: decoded.email,
+            oid: userOid,
+            name: decoded.name
+        };
+        
+        adminSessions.set(token, {
+            user: userInfo,
+            expiresAt: decoded.exp * 1000
+        });
+        
+        res.json({
+            success: true,
+            user: userInfo,
+            token: token, // Return token for client to use in subsequent requests
+            expiresAt: decoded.exp * 1000
+        });
+        
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] Admin login failed:`, error.message);
+        res.status(401).json({ error: 'Invalid or expired token' });
+    }
 });
 
 // Get alert server URL for organization (public endpoint, returns configured URL)
@@ -756,10 +1036,13 @@ app.post('/api/systems', async (req, res) => {
  */
 async function getUserGroups(userEmail) {
     if (!graphClient || !userEmail) {
+        console.log(`getUserGroups: graphClient=${!!graphClient}, userEmail=${userEmail}`);
         return [];
     }
     
     try {
+        console.log(`Fetching groups for user: ${userEmail}`);
+        
         // First, find the user by email/UPN
         const users = await graphClient.api('/users')
             .filter(`userPrincipalName eq '${userEmail}' or mail eq '${userEmail}'`)
@@ -772,20 +1055,51 @@ async function getUserGroups(userEmail) {
         }
         
         const userId = users.value[0].id;
+        console.log(`Found user ${userEmail} with ID: ${userId}`);
         
-        // Get user's group memberships
-        const groups = await graphClient.api(`/users/${userId}/memberOf`)
-            .select('id,displayName,mailEnabled,securityEnabled')
-            .get();
-        
-        return (groups.value || []).map(g => ({
-            id: g.id,
-            displayName: g.displayName,
-            mailEnabled: g.mailEnabled || false,
-            securityEnabled: g.securityEnabled !== false // Default to true if not specified
-        }));
+        // Get user's group memberships (use transitive to get all groups including nested)
+        try {
+            const groups = await graphClient.api(`/users/${userId}/transitiveMemberOf`)
+                .select('id,displayName,mailEnabled,securityEnabled')
+                .get();
+            
+            const groupList = (groups.value || []).map(g => ({
+                id: g.id,
+                displayName: g.displayName,
+                mailEnabled: g.mailEnabled || false,
+                securityEnabled: g.securityEnabled !== false // Default to true if not specified
+            }));
+            
+            console.log(`Found ${groupList.length} groups for user ${userEmail}:`, groupList.map(g => g.displayName).join(', '));
+            if (groupList.length === 0) {
+                console.log(`  NOTE: If you just added the user to a group, Azure AD changes can take 1-5 minutes to propagate.`);
+            }
+            return groupList;
+        } catch (memberOfError) {
+            // Fall back to direct memberOf if transitiveMemberOf fails
+            console.log(`transitiveMemberOf failed, trying memberOf: ${memberOfError.message}`);
+            const groups = await graphClient.api(`/users/${userId}/memberOf`)
+                .select('id,displayName,mailEnabled,securityEnabled')
+                .get();
+            
+            const groupList = (groups.value || []).map(g => ({
+                id: g.id,
+                displayName: g.displayName,
+                mailEnabled: g.mailEnabled || false,
+                securityEnabled: g.securityEnabled !== false
+            }));
+            
+            console.log(`Found ${groupList.length} direct groups for user ${userEmail}:`, groupList.map(g => g.displayName).join(', '));
+            return groupList;
+        }
     } catch (error) {
         console.error(`Error fetching groups for user ${userEmail}:`, error.message);
+        if (error.statusCode) {
+            console.error(`  HTTP Status: ${error.statusCode}`);
+        }
+        if (error.body) {
+            console.error(`  Error body:`, JSON.stringify(error.body, null, 2));
+        }
         return [];
     }
 }
@@ -828,27 +1142,182 @@ async function getUsersInGroups(groupIds) {
     try {
         const allUsers = new Set();
         
-        // Get users from each group
+        // Get users from each group (use transitiveMembers to get nested groups)
         for (const groupId of groupIds) {
             try {
-                const members = await graphClient.api(`/groups/${groupId}/members`)
-                    .select('id,userPrincipalName,mail')
-                    .get();
+                // Try transitiveMembers first to get all users including nested groups
+                let members;
+                try {
+                    members = await graphClient.api(`/groups/${groupId}/transitiveMembers`)
+                        .select('id,userPrincipalName,mail')
+                        .get();
+                } catch (transitiveError) {
+                    // Fall back to direct members if transitiveMembers fails
+                    console.log(`transitiveMembers failed for group ${groupId}, using members: ${transitiveError.message}`);
+                    members = await graphClient.api(`/groups/${groupId}/members`)
+                        .select('id,userPrincipalName,mail')
+                        .get();
+                }
                 
                 (members.value || []).forEach(user => {
+                    // Only include actual users (not groups or other objects)
                     if (user.userPrincipalName || user.mail) {
                         allUsers.add(user.userPrincipalName || user.mail);
                     }
                 });
             } catch (error) {
                 console.error(`Error fetching members of group ${groupId}:`, error.message);
+                if (error.statusCode) {
+                    console.error(`  HTTP Status: ${error.statusCode}`);
+                }
             }
         }
         
-        return Array.from(allUsers);
+        const userList = Array.from(allUsers);
+        console.log(`Found ${userList.length} users in selected groups:`, userList.join(', '));
+        if (userList.length === 0) {
+            console.log(`  NOTE: If you just added users to groups, Azure AD changes can take 1-5 minutes to propagate.`);
+        }
+        return userList;
     } catch (error) {
         console.error('Error fetching users in groups:', error.message);
         return [];
+    }
+}
+
+/**
+ * Find a group by its display name
+ */
+async function findGroupByName(groupName) {
+    if (!graphClient || !groupName) {
+        return null;
+    }
+    
+    try {
+        // Search for group by display name
+        const groups = await graphClient.api('/groups')
+            .filter(`displayName eq '${groupName}'`)
+            .select('id,displayName')
+            .get();
+        
+        if (groups.value && groups.value.length > 0) {
+            return groups.value[0];
+        }
+        
+        return null;
+    } catch (error) {
+        console.error(`Error finding group by name "${groupName}":`, error.message);
+        return null;
+    }
+}
+
+/**
+ * Check if a user is a Global Administrator
+ */
+async function isGlobalAdministrator(userOid) {
+    if (!graphClient || !userOid) {
+        return false;
+    }
+    
+    try {
+        // Method 1: Check via directoryRoles endpoint (most reliable)
+        try {
+            // Get the Global Administrator directory role
+            // Note: directoryRoles only returns activated roles
+            const directoryRoles = await graphClient.api('/directoryRoles')
+                .filter("displayName eq 'Global Administrator'")
+                .select('id,displayName')
+                .get();
+            
+            if (directoryRoles.value && directoryRoles.value.length > 0) {
+                const globalAdminRoleId = directoryRoles.value[0].id;
+                console.log(`[${new Date().toISOString()}] Found Global Administrator role ID: ${globalAdminRoleId}`);
+                
+                // Check if user is a member of this role
+                // Use $count=false to avoid issues with empty results
+                try {
+                    const members = await graphClient.api(`/directoryRoles/${globalAdminRoleId}/members`)
+                        .filter(`id eq '${userOid}'`)
+                        .select('id')
+                        .get();
+                    
+                    if (members.value && members.value.length > 0) {
+            console.log(`[${new Date().toISOString()}] User ${userOid} is a Global Administrator (via directory role ${globalAdminRoleId})`);
+                    return true;
+                    }
+                } catch (memberError) {
+                    // If the role exists but querying members fails, try alternative method
+                    console.log(`Could not query role members directly: ${memberError.message}`);
+                    // Fall through to next method
+                }
+            } else {
+                console.log(`[${new Date().toISOString()}] Global Administrator directory role not found or not activated`);
+            }
+        } catch (roleError) {
+            console.log(`Directory role check failed: ${roleError.message}`);
+            if (roleError.statusCode) {
+                console.log(`  HTTP Status: ${roleError.statusCode}`);
+            }
+            // Fall through to next method
+        }
+        
+        // Method 2: Check via user's memberOf (includes directory roles)
+        try {
+            const roles = await graphClient.api(`/users/${userOid}/memberOf`)
+                .select('id,displayName,@odata.type')
+                .get();
+            
+            // Check if user has Global Administrator role
+            const globalAdminRole = (roles.value || []).find(role => 
+                role.displayName === 'Global Administrator' ||
+                role.id === '62e90394-69f5-4237-9190-012177145e10' // Role template ID
+            );
+            
+            if (globalAdminRole) {
+                console.log(`[${new Date().toISOString()}] User ${userOid} is a Global Administrator (via memberOf)`);
+                return true;
+            }
+        } catch (memberOfError) {
+            console.log(`MemberOf check failed: ${memberOfError.message}`);
+        }
+        
+        // Method 3: Check via roleManagement API (most comprehensive)
+        try {
+            // Get user's directory role assignments directly
+            const roleAssignments = await graphClient.api(`/roleManagement/directory/roleAssignments`)
+                .filter(`principalId eq '${userOid}'`)
+                .expand('roleDefinition')
+                .get();
+            
+            if (roleAssignments.value && roleAssignments.value.length > 0) {
+                const globalAdminAssignment = roleAssignments.value.find(assignment => 
+                    assignment.roleDefinition?.displayName === 'Global Administrator' ||
+                    assignment.roleDefinition?.roleTemplateId === '62e90394-69f5-4237-9190-012177145e10'
+                );
+                
+                if (globalAdminAssignment) {
+                    console.log(`[${new Date().toISOString()}] User ${userOid} is a Global Administrator (via role assignments)`);
+                    return true;
+                }
+            }
+        } catch (roleAssignmentError) {
+            console.log(`Role assignment check failed: ${roleAssignmentError.message}`);
+            if (roleAssignmentError.statusCode) {
+                console.log(`  HTTP Status: ${roleAssignmentError.statusCode}`);
+            }
+        }
+        
+        console.log(`[${new Date().toISOString()}] User ${userOid} is NOT a Global Administrator`);
+        return false;
+    } catch (error) {
+        console.error(`Error checking Global Administrator status for user ${userOid}:`, error.message);
+        if (error.statusCode) {
+            console.error(`  HTTP Status: ${error.statusCode}`);
+        }
+        if (error.body) {
+            console.error(`  Error body:`, JSON.stringify(error.body, null, 2));
+        }
+        return false;
     }
 }
 
@@ -1181,6 +1650,65 @@ app.get('/api/authorized-keys', authenticate, async (req, res) => {
         res.setHeader('Content-Type', 'text/plain');
         res.send(authorizedKeys.join('\n') + '\n');
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Generate authorized_keys file by group name (for automation/wget)
+// Endpoint: /api/authorized-keys/group/:groupName
+// Optional query param: ?key=adminKey (or use X-API-Key header)
+// Example: wget http://server:3000/api/authorized-keys/group/Developers?key=adminkey
+app.get('/api/authorized-keys/group/:groupName', async (req, res) => {
+    try {
+        // Check authentication (admin key in query param or header)
+        const providedKey = req.query.key || req.headers['x-api-key'];
+        if (!providedKey || providedKey !== config?.admin_key) {
+            return res.status(401).json({ error: 'Unauthorized. Provide admin key via ?key= parameter or X-API-Key header.' });
+        }
+        
+        const groupName = decodeURIComponent(req.params.groupName);
+        console.log(`Generating authorized_keys for group: ${groupName}`);
+        
+        // Find the group by name
+        const group = await findGroupByName(groupName);
+        if (!group) {
+            return res.status(404).json({ error: `Group "${groupName}" not found` });
+        }
+        
+        console.log(`Found group "${groupName}" with ID: ${group.id}`);
+        
+        // Get users in the group
+        const usersInGroup = await getUsersInGroups([group.id]);
+        if (usersInGroup.length === 0) {
+            console.log(`No users found in group "${groupName}"`);
+            res.setHeader('Content-Type', 'text/plain');
+            return res.send('# No users found in group\n');
+        }
+        
+        // Get keys for users in the group
+        const data = await loadData();
+        const users = data.users || {};
+        
+        const authorizedKeys = [];
+        for (const username of usersInGroup) {
+            const user = users[username];
+            if (user && user.public_keys) {
+                for (const key of user.public_keys) {
+                    if (key.key_data && key.verified) {
+                        // Format: key_data comment (username)
+                        authorizedKeys.push(`${key.key_data} ${username}`);
+                    }
+                }
+            }
+        }
+        
+        console.log(`Generated authorized_keys with ${authorizedKeys.length} keys for ${usersInGroup.length} users in group "${groupName}"`);
+        
+        res.setHeader('Content-Type', 'text/plain');
+        res.setHeader('Content-Disposition', `inline; filename="authorized_keys_${groupName.replace(/[^a-zA-Z0-9]/g, '_')}.txt"`);
+        res.send(authorizedKeys.join('\n') + '\n');
+    } catch (error) {
+        console.error(`Error generating authorized_keys for group:`, error);
         res.status(500).json({ error: error.message });
     }
 });
