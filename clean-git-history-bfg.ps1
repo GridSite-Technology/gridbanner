@@ -16,11 +16,12 @@ if (-not (Test-Path $bfgPath)) {
 Write-Host "Creating replacements file..." -ForegroundColor Cyan
 
 # Create replacements file for BFG
+# IMPORTANT: Update these with your actual sensitive values before running!
 $replacements = @"
-{your-api-client-id}==>{your-api-client-id}
-{your-desktop-client-id}==>{your-desktop-client-id}
-{your-tenant-id}==>{your-tenant-id}
-{your-client-secret}==>{your-client-secret}
+REPLACE_WITH_YOUR_API_CLIENT_ID==>{your-api-client-id}
+REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID==>{your-desktop-client-id}
+REPLACE_WITH_YOUR_TENANT_ID==>{your-tenant-id}
+REPLACE_WITH_YOUR_CLIENT_SECRET==>{your-client-secret}
 "@
 
 $replacementsFile = ".bfg-replacements.txt"
@@ -36,7 +37,7 @@ if ($LASTEXITCODE -eq 0) {
     
     Write-Host ""
     Write-Host "Verification:" -ForegroundColor Cyan
-    $sensitive = @("{your-api-client-id}", "0Fq8Q")
+    $sensitive = @("REPLACE_WITH_YOUR_API_CLIENT_ID", "REPLACE_WITH_YOUR_CLIENT_SECRET")
     foreach ($val in $sensitive) {
         $count = (git log --all -S $val --oneline 2>&1 | Measure-Object).Count
         if ($count -eq 0) {
