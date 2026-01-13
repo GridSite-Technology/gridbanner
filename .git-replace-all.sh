@@ -1,0 +1,1 @@
+find . -type f \( -name "*.md" -o -name "*.ps1" -o -name "*.json" \) ! -path "./.git/*" -exec sh -c 'for f; do sed -i "s|{your-client-secret}|{your-client-secret}|g; sed -i "s|{your-api-client-id}|{your-api-client-id}|g; sed -i "s|{your-desktop-client-id}|{your-desktop-client-id}|g; sed -i "s|{your-tenant-id}|{your-tenant-id}|g" "$f"; done' _ {} +
