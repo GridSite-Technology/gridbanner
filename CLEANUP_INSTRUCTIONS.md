@@ -46,7 +46,7 @@ java -jar bfg.jar --replace-text .bfg-replacements.txt
 git reflog expire --expire=now --all
 git gc --prune=now --aggressive
 
-# Verify
+# Verify (replace with your actual sensitive value patterns)
 git log --all -S "{your-client-secret-pattern}" --oneline
 git log --all -S "{your-api-client-id-pattern}" --oneline
 

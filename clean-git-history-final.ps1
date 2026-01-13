@@ -82,6 +82,7 @@ if ($filterParts.Count -gt 0) {
     } else {
         Write-Host "  [FAILED]" -ForegroundColor Red
         # Check if it actually worked despite exit code
+        # Note: Update the search pattern below with your actual sensitive value pattern
         $verify = git log --all -S "{your-client-secret-pattern}" --oneline 2>&1 | Measure-Object
         if ($verify.Count -eq 0) {
             Write-Host "  [SUCCESS] Verification shows values were removed!" -ForegroundColor Green
