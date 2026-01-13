@@ -9,10 +9,10 @@ $fileScript = @'
 #!/bin/sh
 find . -type f \( -name "*.md" -o -name "*.ps1" -o -name "*.json" -o -name "*.sh" -o -name "*.bat" \) ! -path "./.git/*" | while read file; do
     if [ -f "$file" ]; then
-        sed -i "s|{your-client-secret}|{your-client-secret}|g" "$file"
-        sed -i "s|{your-api-client-id}|{your-api-client-id}|g" "$file"
-        sed -i "s|{your-desktop-client-id}|{your-desktop-client-id}|g" "$file"
-        sed -i "s|{your-tenant-id}|{your-tenant-id}|g" "$file"
+        sed -i "s|{your-actual-client-secret}|{your-client-secret}|g" "$file"
+        sed -i "s|{your-actual-api-client-id}|{your-api-client-id}|g" "$file"
+        sed -i "s|{your-actual-desktop-client-id}|{your-desktop-client-id}|g" "$file"
+        sed -i "s|{your-actual-tenant-id}|{your-tenant-id}|g" "$file"
     fi
 done
 '@
@@ -20,10 +20,10 @@ done
 # Create message filter script
 $msgScript = @'
 #!/bin/sh
-sed "s|{your-client-secret}|{your-client-secret}|g" | \
-sed "s|{your-api-client-id}|{your-api-client-id}|g" | \
-sed "s|{your-desktop-client-id}|{your-desktop-client-id}|g" | \
-sed "s|{your-tenant-id}|{your-tenant-id}|g"
+sed "s|{your-actual-client-secret}|{your-client-secret}|g" | \
+sed "s|{your-actual-api-client-id}|{your-api-client-id}|g" | \
+sed "s|{your-actual-desktop-client-id}|{your-desktop-client-id}|g" | \
+sed "s|{your-actual-tenant-id}|{your-tenant-id}|g"
 '@
 
 Set-Content -Path ".git-fix-files.sh" -Value $fileScript -NoNewline -Encoding ASCII
@@ -45,10 +45,10 @@ Remove-Item ".git-fix-files.sh", ".git-fix-msg.sh" -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Verifying..." -ForegroundColor Cyan
-$secret = git log --all -S "{your-client-secret}" --oneline 2>&1
-$apiId = git log --all -S "{your-api-client-id}" --oneline 2>&1
-$desktopId = git log --all -S "{your-desktop-client-id}" --oneline 2>&1
-$tenantId = git log --all -S "{your-tenant-id}" --oneline 2>&1
+$secret = git log --all -S "{your-actual-client-secret}" --oneline 2>&1
+$apiId = git log --all -S "{your-actual-api-client-id}" --oneline 2>&1
+$desktopId = git log --all -S "{your-actual-desktop-client-id}" --oneline 2>&1
+$tenantId = git log --all -S "{your-actual-tenant-id}" --oneline 2>&1
 
 $clean = $true
 if ($secret -and -not ($secret -match "fatal") -and ($secret | Measure-Object).Count -gt 0) {

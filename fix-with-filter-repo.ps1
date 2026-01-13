@@ -11,10 +11,10 @@ if (-not $filterRepo) {
 
 # Create replacements file
 $replacements = @"
-{your-client-secret}==>{your-client-secret}
-{your-api-client-id}==>{your-api-client-id}
-{your-desktop-client-id}==>{your-desktop-client-id}
-{your-tenant-id}==>{your-tenant-id}
+{your-actual-client-secret}==>{your-client-secret}
+{your-actual-api-client-id}==>{your-api-client-id}
+{your-actual-desktop-client-id}==>{your-desktop-client-id}
+{your-actual-tenant-id}==>{your-tenant-id}
 "@
 
 $replacementsFile = ".filter-repo-replacements.txt"
@@ -30,8 +30,8 @@ Remove-Item $replacementsFile -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Verifying..." -ForegroundColor Cyan
-$secret = git log --all -S "{your-client-secret}" --oneline 2>&1
-$apiId = git log --all -S "{your-api-client-id}" --oneline 2>&1
+$secret = git log --all -S "{your-actual-client-secret}" --oneline 2>&1
+$apiId = git log --all -S "{your-actual-api-client-id}" --oneline 2>&1
 
 if (($secret -and -not ($secret -match "fatal") -and ($secret | Measure-Object).Count -gt 0) -or 
     ($apiId -and -not ($apiId -match "fatal") -and ($apiId | Measure-Object).Count -gt 0)) {
