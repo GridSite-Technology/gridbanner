@@ -104,10 +104,10 @@ Download from: https://rtyley.github.io/bfg-repo-cleaner/
 Create `replacements.txt`:
 
 ```
-{your-api-client-id}==>{your-api-client-id}
-{your-desktop-client-id}==>{your-desktop-client-id}
-{your-tenant-id}==>{your-tenant-id}
-{your-client-secret}==>{your-client-secret}
+REPLACE_WITH_YOUR_API_CLIENT_ID==>{your-api-client-id}
+REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID==>{your-desktop-client-id}
+REPLACE_WITH_YOUR_TENANT_ID==>{your-tenant-id}
+REPLACE_WITH_YOUR_CLIENT_SECRET==>{your-client-secret}
 ```
 
 ### Run BFG
@@ -124,8 +124,8 @@ git gc --prune=now --aggressive
 
 ```powershell
 # Check that sensitive values are gone
-git log --all -S "{your-api-client-id}" --oneline
-git log --all -S "{your-client-secret-pattern}" --oneline
+git log --all -S "YOUR_API_CLIENT_ID" --oneline
+git log --all -S "YOUR_CLIENT_SECRET" --oneline
 
 # Should return no results
 ```
@@ -163,10 +163,10 @@ Run this to verify no sensitive data is in your current working directory:
 
 ```powershell
 $sensitive = @(
-    "{your-api-client-id}",
-    "{your-desktop-client-id}",
-    "{your-tenant-id}",
-    "{your-client-secret}"
+    "YOUR_API_CLIENT_ID_HERE",
+    "YOUR_DESKTOP_CLIENT_ID_HERE",
+    "YOUR_TENANT_ID_HERE",
+    "YOUR_CLIENT_SECRET_HERE"
 )
 
 Get-ChildItem -Recurse -File | Where-Object { $_.Extension -match '\.(md|json|ini|cs|js)$' } | ForEach-Object {

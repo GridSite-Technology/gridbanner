@@ -14,11 +14,12 @@ if ($confirm -ne "yes") {
 $env:FILTER_BRANCH_SQUELCH_WARNING = "1"
 
 # Values to replace
+# IMPORTANT: Update these with your actual sensitive values before running!
 $replacements = @{
-    "{your-api-client-id}" = "{your-api-client-id}"
-    "{your-desktop-client-id}" = "{your-desktop-client-id}"
-    "{your-tenant-id}" = "{your-tenant-id}"
-    "{your-client-secret}" = "{your-client-secret}"
+    "REPLACE_WITH_YOUR_API_CLIENT_ID" = "{your-api-client-id}"
+    "REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID" = "{your-desktop-client-id}"
+    "REPLACE_WITH_YOUR_TENANT_ID" = "{your-tenant-id}"
+    "REPLACE_WITH_YOUR_CLIENT_SECRET" = "{your-client-secret}"
 }
 
 Write-Host "Creating filter script..." -ForegroundColor Cyan
@@ -27,10 +28,11 @@ Write-Host "Creating filter script..." -ForegroundColor Cyan
 $filterScript = @"
 `$content = Get-Content `$args[0] -Raw -ErrorAction SilentlyContinue
 if (`$content) {
-    `$content = `$content -replace '{your-api-client-id}', '{your-api-client-id}'
-    `$content = `$content -replace '{your-desktop-client-id}', '{your-desktop-client-id}'
-    `$content = `$content -replace '{your-tenant-id}', '{your-tenant-id}'
-    `$content = `$content -replace '{your-client-secret}', '{your-client-secret}'
+    # Update these with your actual sensitive values
+    `$content = `$content -replace 'REPLACE_WITH_YOUR_API_CLIENT_ID', '{your-api-client-id}'
+    `$content = `$content -replace 'REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID', '{your-desktop-client-id}'
+    `$content = `$content -replace 'REPLACE_WITH_YOUR_TENANT_ID', '{your-tenant-id}'
+    `$content = `$content -replace 'REPLACE_WITH_YOUR_CLIENT_SECRET', '{your-client-secret}'
     Set-Content -Path `$args[0] -Value `$content -NoNewline
 }
 "@

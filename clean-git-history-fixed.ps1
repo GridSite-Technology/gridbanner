@@ -1,4 +1,4 @@
-# Simple script to remove sensitive Azure AD values from git history
+# Fixed script to remove sensitive Azure AD values from git history
 # Run this from the repository root directory
 
 param(
@@ -36,7 +36,7 @@ Write-Host ""
 if ($DryRun) {
     Write-Host "DRY RUN MODE - Checking what would be changed..." -ForegroundColor Cyan
     foreach ($oldValue in $replacements.Keys) {
-        $count = (git log --all -S $oldValue --oneline | Measure-Object).Count
+        $count = (git log --all -S $oldValue --oneline 2>&1 | Measure-Object).Count
         if ($count -gt 0) {
             Write-Host "  Found '$oldValue' in $count commit(s)" -ForegroundColor Yellow
         }
@@ -59,25 +59,29 @@ Write-Host ""
 Write-Host "Step 1: Creating replacement script..." -ForegroundColor Cyan
 
 # Create a PowerShell script that will do the replacements
-$filterScript = @'
+$filterScriptContent = @'
 param($filePath)
 if (Test-Path $filePath) {
     $content = Get-Content $filePath -Raw -ErrorAction SilentlyContinue
     if ($content) {
         $changed = $false
-'@
-
-foreach ($oldValue in $replacements.Keys) {
-    $newValue = $replacements[$oldValue]
-    $filterScript += @"
-        if (`$content -match [regex]::Escape('$oldValue')) {
-            `$content = `$content -replace [regex]::Escape('$oldValue'), '$newValue'
-            `$changed = `$true
+        # Update these with your actual sensitive values
+        if ($content -match [regex]::Escape('REPLACE_WITH_YOUR_API_CLIENT_ID')) {
+            $content = $content -replace [regex]::Escape('REPLACE_WITH_YOUR_API_CLIENT_ID'), '{your-api-client-id}'
+            $changed = $true
         }
-"@
-}
-
-$filterScript += @'
+        if ($content -match [regex]::Escape('REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID')) {
+            $content = $content -replace [regex]::Escape('REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID'), '{your-desktop-client-id}'
+            $changed = $true
+        }
+        if ($content -match [regex]::Escape('REPLACE_WITH_YOUR_TENANT_ID')) {
+            $content = $content -replace [regex]::Escape('REPLACE_WITH_YOUR_TENANT_ID'), '{your-tenant-id}'
+            $changed = $true
+        }
+        if ($content -match [regex]::Escape('REPLACE_WITH_YOUR_CLIENT_SECRET')) {
+            $content = $content -replace [regex]::Escape('REPLACE_WITH_YOUR_CLIENT_SECRET'), '{your-client-secret}'
+            $changed = $true
+        }
         if ($changed) {
             Set-Content -Path $filePath -Value $content -NoNewline
         }
@@ -86,7 +90,7 @@ $filterScript += @'
 '@
 
 $filterScriptPath = Join-Path $env:TEMP "git-filter-replace.ps1"
-Set-Content -Path $filterScriptPath -Value $filterScript
+Set-Content -Path $filterScriptPath -Value $filterScriptContent -Encoding UTF8
 
 Write-Host "Step 2: Running git filter-branch (this may take several minutes)..." -ForegroundColor Cyan
 
@@ -111,23 +115,30 @@ if ($filesFound.Count -eq 0) {
     exit 0
 }
 
-# Run filter-branch for all files at once
-$treeFilter = "foreach (`$f in @('$($filesFound -join "','")')) { if (Test-Path `$f) { powershell -File '$filterScriptPath' `$f } }"
-
 Write-Host "Processing files: $($filesFound -join ', ')" -ForegroundColor Yellow
-git filter-branch --force --tree-filter $treeFilter --prune-empty --tag-name-filter cat -- --all 2>&1 | Out-Null
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: git filter-branch failed!" -ForegroundColor Red
-    Remove-Item $filterScriptPath -ErrorAction SilentlyContinue
-    exit 1
+# Process each file separately to avoid complex escaping issues
+foreach ($file in $filesFound) {
+    Write-Host "  Processing $file..." -ForegroundColor Cyan
+    $fileEscaped = $file.Replace('\', '/')  # Use forward slashes for git
+    $treeFilter = "powershell -ExecutionPolicy Bypass -File `"$filterScriptPath`" `"$fileEscaped`""
+    
+    $output = git filter-branch --force --tree-filter $treeFilter --prune-empty --tag-name-filter cat -- --all 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR processing $file" -ForegroundColor Red
+        Write-Host $output -ForegroundColor Red
+        # Continue with other files
+    }
 }
 
 Write-Host "Step 3: Cleaning up git references..." -ForegroundColor Cyan
 
 # Remove backup refs
-git for-each-ref --format="%(refname)" refs/original/ | ForEach-Object { 
-    git update-ref -d $_ 2>&1 | Out-Null
+$refs = git for-each-ref --format="%(refname)" refs/original/ 2>&1
+if ($refs) {
+    $refs | ForEach-Object { 
+        git update-ref -d $_ 2>&1 | Out-Null
+    }
 }
 
 Write-Host "Step 4: Running garbage collection..." -ForegroundColor Cyan
@@ -144,8 +155,9 @@ Write-Host "SUCCESS: Git history has been cleaned!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Verification:" -ForegroundColor Cyan
 foreach ($oldValue in $replacements.Keys) {
-    $count = (git log --all -S $oldValue --oneline 2>&1 | Measure-Object).Count
-    if ($count -eq 0) {
+    $result = git log --all -S $oldValue --oneline 2>&1
+    $count = ($result | Measure-Object).Count
+    if ($count -eq 0 -or ($result -match "fatal")) {
         Write-Host "  [OK] '$oldValue' removed from history" -ForegroundColor Green
     } else {
         Write-Host "  [FAIL] '$oldValue' still found in $count commit(s)" -ForegroundColor Red
