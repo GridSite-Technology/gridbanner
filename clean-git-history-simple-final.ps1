@@ -12,12 +12,13 @@ if (-not (Test-Path ".git")) {
     exit 1
 }
 
-# ACTUAL sensitive values to replace
+# Sensitive values to replace
+# IMPORTANT: Update these with your actual sensitive values before running!
 $replacements = @{
-    "{your-api-client-id}" = "{your-api-client-id}"
-    "{your-desktop-client-id}" = "{your-desktop-client-id}"
-    "{your-tenant-id}" = "{your-tenant-id}"
-    "{your-client-secret}" = "{your-client-secret}"
+    "REPLACE_WITH_YOUR_API_CLIENT_ID" = "{your-api-client-id}"
+    "REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID" = "{your-desktop-client-id}"
+    "REPLACE_WITH_YOUR_TENANT_ID" = "{your-tenant-id}"
+    "REPLACE_WITH_YOUR_CLIENT_SECRET" = "{your-client-secret}"
 }
 
 if ($DryRun) {
@@ -41,10 +42,11 @@ $scriptContent = @'
 $f = $args[0]
 if (Test-Path $f) {
     $c = [System.IO.File]::ReadAllText($f)
-    $c = $c.Replace('{your-api-client-id}', '{your-api-client-id}')
-    $c = $c.Replace('{your-desktop-client-id}', '{your-desktop-client-id}')
-    $c = $c.Replace('{your-tenant-id}', '{your-tenant-id}')
-    $c = $c.Replace('{your-client-secret}', '{your-client-secret}')
+    # IMPORTANT: Update these with your actual sensitive values before running!
+    $c = $c.Replace('REPLACE_WITH_YOUR_API_CLIENT_ID', '{your-api-client-id}')
+    $c = $c.Replace('REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID', '{your-desktop-client-id}')
+    $c = $c.Replace('REPLACE_WITH_YOUR_TENANT_ID', '{your-tenant-id}')
+    $c = $c.Replace('REPLACE_WITH_YOUR_CLIENT_SECRET', '{your-client-secret}')
     [System.IO.File]::WriteAllText($f, $c)
 }
 '@
