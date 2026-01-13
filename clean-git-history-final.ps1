@@ -33,17 +33,15 @@ if ($DryRun) {
 }
 
 Write-Host "WARNING: This will rewrite git history!" -ForegroundColor Red
-$confirm = Read-Host "Continue? (type 'yes')"
-if ($confirm -ne "yes") {
-    exit 1
-}
+Write-Host "Proceeding automatically..." -ForegroundColor Yellow
 
 $env:FILTER_BRANCH_SQUELCH_WARNING = "1"
 
 Write-Host ""
-Write-Host "Creating replacement script..." -ForegroundColor Cyan
+Write-Host "Creating replacement script in repo directory..." -ForegroundColor Cyan
 
-# Create PowerShell script for replacements
+# Create script in repo directory (more reliable than temp)
+$scriptPath = Join-Path $PWD ".git-cleanup-temp.ps1"
 $scriptContent = @'
 param($filePath)
 if (Test-Path $filePath) {
@@ -58,10 +56,13 @@ if (Test-Path $filePath) {
 }
 '@
 
-$scriptPath = Join-Path $env:TEMP "git-cleanup.ps1"
 Set-Content -Path $scriptPath -Value $scriptContent -Encoding UTF8
 
+# Get absolute path with forward slashes for git
+$scriptPathAbs = (Resolve-Path $scriptPath).Path.Replace('\', '/')
+
 Write-Host "Running git filter-branch..." -ForegroundColor Cyan
+Write-Host "Script path: $scriptPathAbs" -ForegroundColor Gray
 
 # Process each file
 $files = @("AZURE_AD_TROUBLESHOOTING.md", "AZURE_AD_SETUP_GUIDE.md", "AZURE_AUTH_PROPOSAL.md", "alert-server/config.json", "REMOVE_SENSITIVE_DATA.md", "clean-git-history-simple.ps1", "clean-git-history.ps1", "clean-git-history-fixed.ps1", "clean-git-history-batch.ps1")
@@ -70,13 +71,16 @@ foreach ($file in $files) {
     if (Test-Path $file) {
         Write-Host "  Processing $file..." -ForegroundColor Yellow
         $filePath = $file.Replace('\', '/')
-        $filter = "powershell -ExecutionPolicy Bypass -File `"$scriptPath`" `"$filePath`""
+        
+        # Use absolute path and proper quoting
+        $filter = "powershell -ExecutionPolicy Bypass -NoProfile -File `"$scriptPathAbs`" `"$filePath`""
         
         $result = git filter-branch --force --tree-filter $filter --prune-empty --tag-name-filter cat -- --all 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-Host "    [OK]" -ForegroundColor Green
         } else {
-            Write-Host "    [FAILED] $($result -join ' ')" -ForegroundColor Red
+            Write-Host "    [FAILED]" -ForegroundColor Red
+            Write-Host $result -ForegroundColor Red
         }
     }
 }
@@ -102,4 +106,3 @@ foreach ($oldValue in $replacements.Keys) {
 
 Write-Host ""
 Write-Host "Next: git push --force --all" -ForegroundColor Yellow
-
