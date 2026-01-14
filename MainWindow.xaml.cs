@@ -21,10 +21,17 @@ namespace GridBanner
         private readonly List<BannerWindow> _bannerWindows = new();
         private readonly List<AlertBarWindow> _alertWindows = new();
         private readonly List<SuperCriticalAlertWindow> _superCriticalWindows = new();
+        private readonly List<SystemLockdownAlertWindow> _systemLockdownWindows = new();
+        private SystemLockdownKeyboardHook? _lockdownKeyboardHook;
+        private string? _closedSystemLockdownSignature;
+        private System.Windows.Threading.DispatcherTimer? _lockdownFocusMonitor;
         private readonly AlertSoundPlayer _alertSoundPlayer = new();
         private readonly KeyringManager _keyringManager = new();
         private AzureAuthManager? _azureAuthManager;
         private AlertManager? _alertManager;
+        private ClipboardMonitor? _clipboardMonitor;
+        private PasteInterceptor? _pasteInterceptor;
+        private SensitivityConfig? _sensitivityConfig;
         private System.Windows.Threading.DispatcherTimer? _connectivityTimer;
         private System.Windows.Threading.DispatcherTimer? _keyringCheckTimer;
         private AlertMessage? _activeAlert;
@@ -224,6 +231,26 @@ namespace GridBanner
                 else if (cmd == "managekeys")
                 {
                     ShowManageKeysWindow();
+                }
+                else if (cmd == "exitlockdown")
+                {
+                    // Exit system lockdown if active - check both alert level and visible windows
+                    bool hasActiveLockdown = (_activeAlert?.Level == AlertLevel.SystemLockdown) ||
+                                            (_systemLockdownWindows != null && _systemLockdownWindows.Count > 0 && 
+                                             _systemLockdownWindows.Any(w => w.IsVisible));
+                    
+                    if (hasActiveLockdown)
+                    {
+                        ExitSystemLockdown();
+                    }
+                    else
+                    {
+                        System.Windows.MessageBox.Show(
+                            "No system lockdown is currently active.",
+                            "GridBanner Command",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                    }
                 }
                 else
                 {
@@ -482,6 +509,9 @@ namespace GridBanner
                     SetupKeyringSystem(alertUrl, username);
                 }
 
+                // Clipboard monitoring and paste interception (optional)
+                SetupClipboardMonitoring(config);
+
                 // Hide the main window
                 Hide();
                 LogMessage("MainWindow hidden, banner windows should be visible");
@@ -703,9 +733,16 @@ namespace GridBanner
             _activeAlert = null;
             _dismissedAlertSignature = null;
             _closedSuperCriticalSignature = null;
+            _closedSystemLockdownSignature = null;
             _alertSoundPlayer.Stop();
             HideAllAlertWindows();
             HideAllSuperCriticalWindows();
+            HideAllSystemLockdownWindows();
+            
+            // Stop SystemLockdown monitoring and cleanup
+            StopLockdownFocusMonitoring();
+            _lockdownKeyboardHook?.Dispose();
+            _lockdownKeyboardHook = null;
             
             // Clear connectivity status
             foreach (var banner in _bannerWindows)
@@ -743,6 +780,213 @@ namespace GridBanner
         // Keyring Management
         // ============================================
         
+        private void SetupClipboardMonitoring(Dictionary<string, string> config)
+        {
+            try
+            {
+                // Check if clipboard monitoring is enabled
+                var clipboardEnabled = config.GetValueOrDefault("clipboard_monitoring_enabled", "0") == "1";
+                if (!clipboardEnabled)
+                {
+                    LogMessage("Clipboard monitoring disabled in config");
+                    return;
+                }
+
+                LogMessage("Setting up clipboard monitoring and paste interception");
+
+                // Load sensitivity configuration
+                _sensitivityConfig = SensitivityConfig.Load();
+
+                // Initialize clipboard monitor (starts automatically in constructor)
+                _clipboardMonitor = new ClipboardMonitor(this);
+                _clipboardMonitor.ClipboardChanged += ClipboardMonitor_ClipboardChanged;
+
+                // Initialize paste interceptor (starts automatically in constructor)
+                _pasteInterceptor = new PasteInterceptor(this, _sensitivityConfig);
+                _pasteInterceptor.PasteBlocked += PasteInterceptor_PasteBlocked;
+
+                LogMessage($"Clipboard monitoring and paste interception initialized. PasteBlockingEnabled={_sensitivityConfig.PasteBlockingEnabled}");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error setting up clipboard monitoring: {ex.Message}");
+            }
+        }
+
+        private void ClipboardMonitor_ClipboardChanged(object? sender, ClipboardChangedEventArgs e)
+        {
+            try
+            {
+                LogMessage($"Clipboard changed from: {e.SourceApplication} ({e.SourceWindowTitle})");
+
+                // Detect sensitivity from source
+                var sensitivity = DetectClipboardSensitivity(e);
+                
+                // Update paste interceptor with current clipboard sensitivity
+                _pasteInterceptor?.SetClipboardSensitivity(sensitivity);
+
+                if (sensitivity != null)
+                {
+                    LogMessage($"Detected sensitivity level: {sensitivity.Level} from {sensitivity.Source}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error handling clipboard change: {ex.Message}");
+            }
+        }
+
+        private SensitivityInfo? DetectClipboardSensitivity(ClipboardChangedEventArgs e)
+        {
+            try
+            {
+                var appName = e.SourceApplication.ToUpperInvariant();
+                LogMessage($"Detecting sensitivity for source: {appName}, Window title: {e.SourceWindowTitle}");
+
+                // Check if it's an Office application (Word, Excel, PowerPoint)
+                if (appName == "WINWORD" || appName == "EXCEL" || appName == "POWERPNT")
+                {
+                    LogMessage($"Checking Office document sensitivity for {appName}...");
+                    // Try to get sensitivity label from Office document
+                    var officeSensitivity = SensitivityLabelManager.GetSensitivityFromActiveOfficeApp(
+                        new WindowInteropHelper(this).Handle);
+                    
+                    if (officeSensitivity != null && officeSensitivity.Level != SensitivityLevel.None)
+                    {
+                        // Any sensitivity label found = sensitive
+                        LogMessage($"✓ Office document sensitivity detected: Level={officeSensitivity.Level}, Label={officeSensitivity.LabelName}");
+                        return officeSensitivity;
+                    }
+                    else
+                    {
+                        LogMessage($"✗ No sensitivity label found in Office document");
+                    }
+                }
+
+                // Check if it's a browser (Chrome, Edge, Firefox)
+                if (appName == "CHROME" || appName == "MSEDGE" || appName == "FIREFOX")
+                {
+                    LogMessage($"Checking browser URL sensitivity for {appName}...");
+                    
+                    // Method 1: Check window title for sensitive keywords (most reliable for modern browsers)
+                    var windowTitle = e.SourceWindowTitle ?? "";
+                    LogMessage($"Browser window title: {windowTitle}");
+                    
+                    // Check if title contains PrecisionX Ventures (sensitive company content)
+                    if (windowTitle.Contains("PrecisionX Ventures", StringComparison.OrdinalIgnoreCase) ||
+                        windowTitle.Contains("PrecisionX", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogMessage($"✓ PrecisionX Ventures detected in window title - marking as sensitive");
+                        return new SensitivityInfo
+                        {
+                            Level = SensitivityLevel.Internal,
+                            Source = "Browser",
+                            LabelName = "PrecisionX Ventures",
+                            Description = "PrecisionX content (detected from window title)"
+                        };
+                    }
+                    
+                    // Check if title contains SharePoint indicators
+                    if (windowTitle.Contains("precisionxtech.sharepoint.com", StringComparison.OrdinalIgnoreCase) ||
+                        windowTitle.Contains("sharepoint", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogMessage($"✓ SharePoint detected in window title");
+                        return new SensitivityInfo
+                        {
+                            Level = SensitivityLevel.Internal,
+                            Source = "SharePoint",
+                            LabelName = "precisionxtech.sharepoint.com",
+                            Description = "SharePoint site (detected from window title)"
+                        };
+                    }
+                    
+                    // Method 2: Try to extract URL from title
+                    var url = BrowserUrlDetector.ExtractUrlFromTitle(windowTitle);
+                    LogMessage($"Extracted URL from title: {url ?? "(none)"}");
+                    
+                    // Method 3: Try to get from browser window directly (less reliable)
+                    if (string.IsNullOrEmpty(url))
+                    {
+                        try
+                        {
+                            var process = System.Diagnostics.Process.GetProcessById(e.SourceProcessId);
+                            url = BrowserUrlDetector.GetUrlFromBrowserWindow(
+                                new WindowInteropHelper(this).Handle,
+                                process.ProcessName);
+                            LogMessage($"Extracted URL from window: {url ?? "(none)"}");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMessage($"Error getting URL from browser window: {ex.Message}");
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(url))
+                    {
+                        // Check if it's precisionxtech.sharepoint.com
+                        if (SensitivityLabelManager.IsSharePointUrl(url))
+                        {
+                            LogMessage($"✓ SharePoint URL detected: {url}");
+                            return new SensitivityInfo
+                            {
+                                Level = SensitivityLevel.Internal,
+                                Source = "SharePoint",
+                                LabelName = url,
+                                Description = "SharePoint site"
+                            };
+                        }
+                        
+                        // Check general URL sensitivity
+                        var level = SensitivityLabelManager.GetSensitivityFromUrl(url);
+                        LogMessage($"URL sensitivity level: {level}");
+                        if (level != SensitivityLevel.None && level != SensitivityLevel.Public)
+                        {
+                            LogMessage($"✓ URL marked as sensitive: {url}");
+                            return new SensitivityInfo
+                            {
+                                Level = level,
+                                Source = "Browser",
+                                LabelName = url
+                            };
+                        }
+                    }
+                    else
+                    {
+                        LogMessage($"✗ Could not extract URL from browser - checking title for keywords");
+                    }
+                }
+
+                // Default: no sensitivity detected
+                LogMessage($"✗ No sensitivity detected for {appName}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error detecting clipboard sensitivity: {ex.Message}\n{ex.StackTrace}");
+                return null;
+            }
+        }
+
+        private void PasteInterceptor_PasteBlocked(object? sender, PasteBlockedEventArgs e)
+        {
+            try
+            {
+                LogMessage($"Paste blocked: Source={e.SourceSensitivity.Level}, Destination={e.DestinationSensitivity.Level}");
+
+                if (_sensitivityConfig?.ShowWarnings == true)
+                {
+                    // Show warning window
+                    var warningWindow = new PasteWarningWindow();
+                    warningWindow.SetWarningInfo(e.SourceSensitivity, e.DestinationSensitivity);
+                    warningWindow.Show();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error showing paste warning: {ex.Message}");
+            }
+        }
+
         private void SetupKeyringSystem(string alertUrl, string username)
         {
             LogMessage($"Setting up keyring system for user: {username}");
@@ -956,6 +1200,232 @@ namespace GridBanner
             }
         }
 
+        private void CreateOrRefreshSystemLockdownWindows()
+        {
+            CloseAllSystemLockdownWindows();
+
+            var screens = Screen.AllScreens;
+            if (screens == null || screens.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var screen in screens)
+            {
+                var w = new SystemLockdownAlertWindow();
+                w.SetScreen(screen);
+                w.OnExitLockdown = ExitSystemLockdown;
+                
+                // Track primary monitor window (for focus monitoring)
+                if (screen.Primary && _primarySystemLockdownWindow == null)
+                {
+                    _primarySystemLockdownWindow = w;
+                }
+                
+                // Monitor window state - only lock if window is actually minimized or hidden
+                // Don't lock on simple deactivation (e.g., when command window opens)
+                w.StateChanged += (sender, e) =>
+                {
+                    // Only monitor if windows have been initialized (shown at least once)
+                    if (_systemLockdownWindowsInitialized && w.WindowState == WindowState.Minimized)
+                    {
+                        LogMessage("SystemLockdown window minimized - locking system");
+                        SystemLockHelper.LockSystem();
+                    }
+                };
+                
+                // Monitor if window is actually hidden (user might have closed it via task manager or other means)
+                // Only trigger if windows have been initialized (shown) - ignore initial transitions
+                w.IsVisibleChanged += (sender, e) =>
+                {
+                    // Only check if windows have been initialized and are now hidden
+                    if (_systemLockdownWindowsInitialized && !w.IsVisible && w.WindowState != WindowState.Minimized)
+                    {
+                        // Window was hidden but not minimized - check if it's still supposed to be visible
+                        if (_activeAlert?.Level == AlertLevel.SystemLockdown && 
+                            !string.Equals(_closedSystemLockdownSignature, _activeAlert.Signature, StringComparison.Ordinal))
+                        {
+                            LogMessage("SystemLockdown window hidden unexpectedly - locking system");
+                            SystemLockHelper.LockSystem();
+                        }
+                    }
+                };
+                
+                w.Hide();
+                _systemLockdownWindows.Add(w);
+            }
+
+            // Install keyboard hook to block dangerous keys
+            // Note: Ctrl+Alt+Shift+F1 is NOT blocked - it passes through to the command window
+            if (_lockdownKeyboardHook == null)
+            {
+                _lockdownKeyboardHook = new SystemLockdownKeyboardHook();
+                // ExitLockdownRequested is no longer used - exit is handled via command window
+            }
+
+            // Don't start focus monitoring here - it will be started after windows are shown
+        }
+
+        private void StartLockdownFocusMonitoring()
+        {
+            // Stop existing monitor if any
+            StopLockdownFocusMonitoring();
+
+            // Create timer to check foreground window periodically
+            _lockdownFocusMonitor = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500) // Check every 500ms
+            };
+            _lockdownFocusMonitor.Tick += LockdownFocusMonitor_Tick;
+            _lockdownFocusMonitor.Start();
+            LogMessage("SystemLockdown focus monitoring started");
+        }
+
+        private void StopLockdownFocusMonitoring()
+        {
+            if (_lockdownFocusMonitor != null)
+            {
+                _lockdownFocusMonitor.Stop();
+                _lockdownFocusMonitor.Tick -= LockdownFocusMonitor_Tick;
+                _lockdownFocusMonitor = null;
+                LogMessage("SystemLockdown focus monitoring stopped");
+            }
+        }
+
+        private void LockdownFocusMonitor_Tick(object? sender, EventArgs e)
+        {
+            try
+            {
+                // Only monitor if we have an active SystemLockdown alert that hasn't been closed
+                bool hasActiveLockdown = _activeAlert != null &&
+                                        _activeAlert.Level == AlertLevel.SystemLockdown &&
+                                        !string.Equals(_closedSystemLockdownSignature, _activeAlert.Signature, StringComparison.Ordinal);
+                
+                if (!hasActiveLockdown)
+                {
+                    // No active lockdown - stop monitoring to prevent false positives
+                    StopLockdownFocusMonitoring();
+                    return;
+                }
+
+                // Collect handles of allowed windows (SystemLockdown windows and CommandWindow)
+                var allowedHandles = new List<IntPtr>();
+                
+                if (_systemLockdownWindows != null)
+                {
+                    foreach (var w in _systemLockdownWindows)
+                    {
+                        try
+                        {
+                            if (w.IsVisible)
+                            {
+                                var helper = new WindowInteropHelper(w);
+                                var handle = helper.Handle;
+                                if (handle != IntPtr.Zero)
+                                {
+                                    allowedHandles.Add(handle);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                // Add command window if open
+                if (_commandWindow != null && _commandWindow.IsVisible)
+                {
+                    try
+                    {
+                        var helper = new WindowInteropHelper(_commandWindow);
+                        var handle = helper.Handle;
+                        if (handle != IntPtr.Zero)
+                        {
+                            allowedHandles.Add(handle);
+                        }
+                    }
+                    catch { }
+                }
+
+                // Check if foreground window is allowed
+                // If not, lock immediately - be aggressive about preventing escape
+                if (!SystemLockdownFocusMonitor.IsForegroundWindowAllowed(allowedHandles.ToArray()))
+                {
+                    LogMessage("Foreground window is not allowed during SystemLockdown - locking system immediately");
+                    SystemLockHelper.LockSystem();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error in focus monitor: {ex.Message}");
+            }
+        }
+
+        private void ExitSystemLockdown()
+        {
+            if (_activeAlert?.Level != AlertLevel.SystemLockdown)
+            {
+                return;
+            }
+
+            _closedSystemLockdownSignature = _activeAlert.Signature;
+            HideAllSystemLockdownWindows();
+            
+            // Stop focus monitoring
+            StopLockdownFocusMonitoring();
+            
+            // Dispose keyboard hook
+            _lockdownKeyboardHook?.Dispose();
+            _lockdownKeyboardHook = null;
+
+            // Re-show the non-dismissible sub-bar immediately
+            try
+            {
+                var alert = _activeAlert;
+                var bgBrush = new SolidColorBrush(ParseColor(alert.BackgroundColor));
+                var fgBrush = new SolidColorBrush(ParseColor(alert.ForegroundColor));
+
+                foreach (var w in _alertWindows)
+                {
+                    try
+                    {
+                        w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: false);
+                        if (!w.IsVisible)
+                        {
+                            w.Show();
+                        }
+                        w.Topmost = true;
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void CloseAllSystemLockdownWindows()
+        {
+            foreach (var w in _systemLockdownWindows.ToList())
+            {
+                try { w.Close(); } catch { /* ignore */ }
+            }
+            _systemLockdownWindows.Clear();
+            _primarySystemLockdownWindow = null;
+            _systemLockdownWindowsInitialized = false;
+        }
+
+        private void HideAllSystemLockdownWindows()
+        {
+            foreach (var w in _systemLockdownWindows)
+            {
+                try { w.Hide(); } catch { /* ignore */ }
+            }
+        }
+
         private void ApplyAlert(AlertMessage? alert)
         {
             // If alert is cleared, reset silenced/hidden flags
@@ -966,9 +1436,16 @@ namespace GridBanner
                 _activeAlert = null;
                 _dismissedAlertSignature = null;
                 _closedSuperCriticalSignature = null;
+                _closedSystemLockdownSignature = null;
                 _alertSoundPlayer.Update(null, dismissed: false);
                 HideAllAlertWindows();
                 HideAllSuperCriticalWindows();
+                HideAllSystemLockdownWindows();
+                
+                // Stop SystemLockdown monitoring and cleanup
+                StopLockdownFocusMonitoring();
+                _lockdownKeyboardHook?.Dispose();
+                _lockdownKeyboardHook = null;
                 
                 // In tray-only mode, hide banners when alert is cleared
                 if (_trayOnlyMode)
@@ -1078,6 +1555,150 @@ namespace GridBanner
             var bgBrush = new SolidColorBrush(ParseColor(alert.BackgroundColor));
             var fgBrush = new SolidColorBrush(ParseColor(alert.ForegroundColor));
 
+            // System Lockdown: show full-screen overlay with keyboard blocking, no acknowledge button
+            if (alert.Level == AlertLevel.SystemLockdown)
+            {
+                if (_systemLockdownWindows.Count == 0)
+                {
+                    CreateOrRefreshSystemLockdownWindows();
+                }
+
+                var overlayClosedLocally = string.Equals(_closedSystemLockdownSignature, alert.Signature, StringComparison.Ordinal);
+                if (!overlayClosedLocally)
+                {
+                    // Reset initialization flag
+                    _systemLockdownWindowsInitialized = false;
+                    
+                    // First, show all windows
+                    foreach (var w in _systemLockdownWindows)
+                    {
+                        try
+                        {
+                            w.Apply(alert, bgBrush, fgBrush);
+                            if (!w.IsVisible)
+                            {
+                                w.Show();
+                            }
+                            w.Topmost = true;
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
+                    }
+
+                    // Keep the UI focused: while the full-screen overlay is visible, hide the smaller alert bar.
+                    HideAllAlertWindows();
+                    
+                    // Focus the primary window first - use the tracked primary window, not just first window
+                    if (_primarySystemLockdownWindow != null)
+                    {
+                        try
+                        {
+                            _primarySystemLockdownWindow.Activate();
+                            _primarySystemLockdownWindow.Focus();
+                            LogMessage("Focused primary SystemLockdown window");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMessage($"Error focusing primary window: {ex.Message}");
+                        }
+                    }
+                    else if (_systemLockdownWindows.Count > 0)
+                    {
+                        // Fallback to first window if primary not found
+                        try
+                        {
+                            var primaryWindow = _systemLockdownWindows[0];
+                            primaryWindow.Activate();
+                            primaryWindow.Focus();
+                            LogMessage("Focused first SystemLockdown window (primary not found)");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMessage($"Error focusing first window: {ex.Message}");
+                        }
+                    }
+                    
+                    // Mark windows as initialized after a short delay
+                    var initTimer = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(500) // Short delay to let windows render
+                    };
+                    initTimer.Tick += (sender, e) =>
+                    {
+                        initTimer.Stop();
+                        _systemLockdownWindowsInitialized = true;
+                        LogMessage("SystemLockdown windows marked as initialized");
+                    };
+                    initTimer.Start();
+                    
+                    // Start focus monitoring AFTER windows are shown, focused, and given time to render
+                    // Use a delay to ensure all 9 monitors have their windows fully visible AND primary has focus
+                    var delayTimer = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromSeconds(2.0) // Give more time for all screens to render and focus to settle
+                    };
+                    delayTimer.Tick += (sender, e) =>
+                    {
+                        delayTimer.Stop();
+                        
+                        // Verify primary window is visible and focused before starting monitoring
+                        if (_primarySystemLockdownWindow != null && _primarySystemLockdownWindow.IsVisible)
+                        {
+                            try
+                            {
+                                // Ensure primary window still has focus
+                                _primarySystemLockdownWindow.Activate();
+                                _primarySystemLockdownWindow.Focus();
+                                LogMessage("Starting SystemLockdown focus monitoring from primary monitor");
+                                StartLockdownFocusMonitoring();
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Error starting focus monitoring: {ex.Message}");
+                            }
+                        }
+                        else
+                        {
+                            LogMessage("Primary SystemLockdown window not visible - skipping focus monitoring start");
+                        }
+                    };
+                    delayTimer.Start();
+                }
+                else
+                {
+                    // Overlay was closed locally; show the top bar (still non-dismissible) until admin clears alert.
+                    foreach (var w in _alertWindows)
+                    {
+                        try
+                        {
+                            w.ApplyAlert(alert, bgBrush, fgBrush, showDismiss: false);
+                            if (!w.IsVisible)
+                            {
+                                w.Show();
+                            }
+                            w.Topmost = true;
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
+                    }
+                }
+
+                // Beep until cleared (handled in AlertSoundPlayer)
+                if (!_alertSilenced)
+                {
+                    _alertSoundPlayer.Update(alert, dismissed: false);
+                }
+                else
+                {
+                    _alertSoundPlayer.Silence();
+                }
+                return;
+            }
+
             // Super critical: show full-screen overlay (can be closed locally), plus a non-dismissible top bar.
             if (alert.Level == AlertLevel.SuperCritical)
             {
@@ -1147,6 +1768,10 @@ namespace GridBanner
                 _alertSoundPlayer.Update(alert, dismissed: true);
                 HideAllAlertWindows();
                 HideAllSuperCriticalWindows();
+                HideAllSystemLockdownWindows();
+                StopLockdownFocusMonitoring();
+                _lockdownKeyboardHook?.Dispose();
+                _lockdownKeyboardHook = null;
                 return;
             }
 
@@ -1227,13 +1852,30 @@ namespace GridBanner
                     _isSessionLocked = true;
                     LogMessage("Session locked: closing banners / unregistering appbars.");
                     CloseAllBanners();
-                    StopAlertSystem();
+                    // Hide alert windows but DON'T clear the alert state
+                    HideAllAlertWindows();
+                    HideAllSuperCriticalWindows();
+                    HideAllSystemLockdownWindows();
+                    // Stop monitoring but keep alert active
+                    StopLockdownFocusMonitoring();
+                    _lockdownKeyboardHook?.Dispose();
+                    _lockdownKeyboardHook = null;
                 }
                 else if (e.Reason == SessionSwitchReason.SessionUnlock)
                 {
                     _isSessionLocked = false;
                     LogMessage("Session unlocked: recreating banners.");
                     MainWindow_Loaded(this, new RoutedEventArgs());
+                    
+                    // Restore alert if it was active before lock
+                    if (_activeAlert != null)
+                    {
+                        LogMessage($"Restoring active alert after unlock: {_activeAlert.Summary}");
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            ApplyAlert(_activeAlert);
+                        }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    }
                 }
             }));
         }
@@ -1857,6 +2499,13 @@ SOFTWARE.";
             _alertManager = null;
             try { _keyringCheckTimer?.Stop(); } catch { /* ignore */ }
             _keyringCheckTimer = null;
+            try { _clipboardMonitor?.Dispose(); } catch { /* ignore */ }
+            _clipboardMonitor = null;
+            try { _pasteInterceptor?.Dispose(); } catch { /* ignore */ }
+            _pasteInterceptor = null;
+            try { _lockdownKeyboardHook?.Dispose(); } catch { /* ignore */ }
+            _lockdownKeyboardHook = null;
+            try { StopLockdownFocusMonitoring(); } catch { /* ignore */ }
             CleanupTrayIcon();
 
             try

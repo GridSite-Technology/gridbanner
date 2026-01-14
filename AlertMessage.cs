@@ -7,7 +7,8 @@ namespace GridBanner
         Routine,
         Urgent,
         Critical,
-        SuperCritical
+        SuperCritical,
+        SystemLockdown
     }
 
     public sealed record AlertMessage(

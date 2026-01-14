@@ -1,0 +1,4 @@
+0Fq8Q~8aOoh7gtn2gr93cU4M-bhfKn6DwGkSSaAA==>{your-client-secret}
+70cd6b3f-5a84-4c0d-bde6-064334d249a9==>{your-api-client-id}
+0aa29fd1-c142-499a-8584-07f6746c9b0b==>{your-desktop-client-id}
+b5ef52d6-f13e-44cd-8f90-a72436c671ce==>{your-tenant-id}

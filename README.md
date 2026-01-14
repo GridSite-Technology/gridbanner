@@ -161,6 +161,16 @@ keyring_enabled = 0
   - When enabled, GridBanner detects local SSH keys and offers to upload them to the alert server
   - Requires `alert_url` to be configured
 
+#### Clipboard Monitoring and Paste Protection
+
+- **clipboard_monitoring_enabled**: `1` to enable clipboard monitoring and paste blocking, `0` to disable (default: `0`)
+  - When enabled, GridBanner monitors clipboard operations and blocks pastes when sensitivity levels don't match
+  - Detects sensitivity labels from Office documents (Word, Excel, PowerPoint)
+  - Detects sensitivity from browser URLs (Chrome, Edge, Firefox)
+  - Blocks paste operations when pasting to destinations with lower sensitivity levels
+  - Shows warning dialogs when paste is blocked
+  - Configuration is stored in `%USERPROFILE%\userdata\gridbanner\sensitivity.json`
+
 ## Usage
 
 Simply run `GridBanner.exe`. The application will:

@@ -41,6 +41,9 @@ namespace GridBanner
 
             // Tray-only mode: when enabled, banner is hidden unless an alert is active
             { "tray_only", "0" },  // 0=show banner always, 1=hide banner (show only on alerts)
+
+            // Clipboard monitoring and paste interception
+            { "clipboard_monitoring_enabled", "0" },  // 0=disabled, 1=enabled
         };
 
         /// <summary>
@@ -205,7 +208,8 @@ namespace GridBanner
                 "compliance_status",
                 "compliance_check_command",
                 "keyring_enabled",
-                "tray_only"
+                "tray_only",
+                "clipboard_monitoring_enabled"
             };
             var hasUnknownKeys = cfg.Keys.Any(k => !allowedKeys.Contains(k));
 

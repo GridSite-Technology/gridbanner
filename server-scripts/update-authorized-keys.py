@@ -40,6 +40,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Script version
+SCRIPT_VERSION = '1.0.0'
+
 # Default configuration
 DEFAULT_SERVER = 'https://umbonic-roseanna-cuppy.ngrok-free.dev'
 DEFAULT_GROUP = 'Developers'
@@ -51,13 +54,26 @@ def get_script_path():
     return os.path.abspath(__file__)
 
 
-def fetch_authorized_keys(server_url, admin_key, group_name):
+def get_system_id():
+    """Get a unique system identifier (hostname)."""
+    try:
+        import socket
+        return socket.gethostname()
+    except:
+        try:
+            import os
+            return os.uname().nodename
+        except:
+            return 'unknown'
+
+
+def fetch_authorized_keys(server_url, download_key, group_name):
     """
     Fetch authorized_keys from the alert server.
     
     Args:
         server_url: Base URL of the alert server
-        admin_key: Admin API key
+        download_key: Keyfile download key (or admin key)
         group_name: Name of the Azure AD group
         
     Returns:
@@ -65,13 +81,17 @@ def fetch_authorized_keys(server_url, admin_key, group_name):
     """
     try:
         # Construct URL
-        url = f"{server_url.rstrip('/')}/api/authorized-keys/group/{group_name}?key={admin_key}"
+        url = f"{server_url.rstrip('/')}/api/authorized-keys/group/{group_name}?key={download_key}"
         
         logger.info(f"Fetching authorized_keys from {url}")
         
-        # Make request
+        # Make request with user agent identifying script version and system
+        system_id = get_system_id()
+        user_agent = f"GridBanner-KeyUpdater/{SCRIPT_VERSION}/{system_id}"
+        
         req = urllib.request.Request(url)
-        req.add_header('X-API-Key', admin_key)
+        req.add_header('X-API-Key', download_key)
+        req.add_header('User-Agent', user_agent)
         
         with urllib.request.urlopen(req, timeout=30) as response:
             if response.status == 200:
@@ -277,7 +297,7 @@ def main():
     parser.add_argument('--server', default=DEFAULT_SERVER,
                        help=f'Alert server URL (default: {DEFAULT_SERVER})')
     parser.add_argument('--key', required=True,
-                       help='Admin API key')
+                       help='Keyfile download key (or admin key)')
     parser.add_argument('--group', default=DEFAULT_GROUP,
                        help=f'Azure AD group name (default: {DEFAULT_GROUP})')
     parser.add_argument('--users', 

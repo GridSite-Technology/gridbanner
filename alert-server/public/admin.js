@@ -287,6 +287,10 @@ function switchTab(tabName) {
         loadSystems();
     } else if (tabName === 'audio') {
         loadAudioFiles();
+    } else if (tabName === 'users') {
+        loadUsers();
+    } else if (tabName === 'keyringSync') {
+        loadKeyringSyncStatus();
     } else if (tabName === 'settings') {
         loadSettings();
         loadGridBannerUrl();
@@ -308,7 +312,8 @@ async function loadAlerts() {
         }
 
         const level = alert.level || 'routine';
-        const levelClass = level === 'super_critical' ? 'critical' : 
+        const levelClass = level === 'system_lockdown' ? 'critical' :
+                          level === 'super_critical' ? 'critical' : 
                           level === 'critical' ? 'critical' : 
                           level === 'urgent' ? 'urgent' : 'routine';
 
@@ -366,6 +371,7 @@ function showNewAlertModal() {
                     <option value="urgent">Urgent</option>
                     <option value="critical">Critical</option>
                     <option value="super_critical">Super Critical</option>
+                    <option value="system_lockdown">System Lockdown</option>
                 </select>
             </div>
             <div class="form-group">
@@ -591,6 +597,7 @@ function showNewTemplateModal(templateId = null) {
                     <option value="urgent">Urgent</option>
                     <option value="critical">Critical</option>
                     <option value="super_critical">Super Critical</option>
+                    <option value="system_lockdown">System Lockdown</option>
                 </select>
             </div>
             <div class="form-group">
@@ -982,6 +989,7 @@ async function saveGlobalSettings() {
 async function loadSettings() {
     loadGridBannerUrl();
     loadGlobalSettings();
+    loadKeyfileDownloadKey();
     try {
         const data = await apiCall('/data');
         const settings = data.settings || {};
@@ -992,6 +1000,95 @@ async function loadSettings() {
         document.getElementById('defaultContactTeams').value = settings.default_contact_teams || '';
     } catch (error) {
         showMessage(`Error loading settings: ${error.message}`, 'error');
+    }
+}
+
+async function loadKeyfileDownloadKey() {
+    try {
+        const response = await apiCall('/admin/keyfile-download-key');
+        document.getElementById('keyfileDownloadKey').value = response.keyfile_download_key || '';
+    } catch (error) {
+        console.error('Error loading keyfile download key:', error);
+    }
+}
+
+async function saveKeyfileDownloadKey() {
+    const key = document.getElementById('keyfileDownloadKey').value.trim();
+    
+    if (!key) {
+        showMessage('Keyfile download key cannot be empty', 'error');
+        return;
+    }
+    
+    try {
+        await apiCall('/admin/keyfile-download-key', 'POST', { keyfile_download_key: key });
+        showMessage('Keyfile download key saved successfully', 'success');
+    } catch (error) {
+        showMessage(`Error saving keyfile download key: ${error.message}`, 'error');
+    }
+}
+
+async function loadKeyringSyncStatus() {
+    const container = document.getElementById('keyringSyncList');
+    container.innerHTML = '<p>Loading sync status...</p>';
+    
+    try {
+        const response = await apiCall('/admin/keyfile-downloads');
+        const { downloads, latestVersion, totalSystems } = response;
+        
+        if (downloads.length === 0) {
+            container.innerHTML = '<p style="color: #666;">No systems have downloaded keyfiles yet.</p>';
+            return;
+        }
+        
+        let html = `
+            <div style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+                <strong>Latest Keyfile Version:</strong> ${latestVersion}<br>
+                <strong>Total Systems:</strong> ${totalSystems}
+            </div>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f0f0f0;">
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">System ID</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Last Download</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Version</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Keys</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Group</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">User Agent</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        downloads.forEach(download => {
+            const statusColor = download.isLatest ? '#28a745' : '#ffc107';
+            const statusText = download.isLatest ? 'Latest' : 'Outdated';
+            const statusIcon = download.isLatest ? '✓' : '⚠';
+            
+            html += `
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 10px;"><strong>${download.systemId}</strong></td>
+                    <td style="padding: 10px;">${download.lastDownloadFormatted}</td>
+                    <td style="padding: 10px;">${download.version}</td>
+                    <td style="padding: 10px; color: ${statusColor};">
+                        <strong>${statusIcon} ${statusText}</strong>
+                    </td>
+                    <td style="padding: 10px;">${download.keyCount}</td>
+                    <td style="padding: 10px;">${download.groupName}</td>
+                    <td style="padding: 10px; font-size: 0.9em; color: #666;">${download.userAgent}</td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                </tbody>
+            </table>
+        `;
+        
+        container.innerHTML = html;
+    } catch (error) {
+        container.innerHTML = `<p style="color: #d32f2f;">Error loading sync status: ${error.message}</p>`;
     }
 }
 
@@ -1020,6 +1117,7 @@ function loadAllData() {
     loadAudioFiles();
     loadUsers();
     loadSettings();
+    loadKeyringSyncStatus();
 }
 
 async function loadTemplatesForSelect(selectId) {
@@ -1428,19 +1526,32 @@ async function generateKeyfile() {
     const selectedGroups = getSelectedKeyfileGroups();
     
     try {
-        let url = '/api/authorized-keys';
+        let endpoint = '/authorized-keys';
         if (selectedGroups.length > 0) {
-            url += '?groups=' + selectedGroups.join(',');
+            endpoint += '?groups=' + selectedGroups.join(',');
         }
         
-        const response = await fetch(url, {
-            headers: {
-                'X-API-Key': apiKey
-            }
-        });
+        // Use apiCall which handles both admin key and Azure AD token
+        // For text responses, we need to use fetch directly but with proper auth
+        const url = `/api${endpoint}`;
+        const options = {
+            method: 'GET',
+            headers: {}
+        };
+        
+        // Use Azure AD token if available, otherwise use admin key
+        if (azureToken) {
+            options.headers['Authorization'] = `Bearer ${azureToken}`;
+        } else if (apiKey) {
+            options.headers['X-API-Key'] = apiKey;
+        } else {
+            throw new Error('Not authenticated. Please login.');
+        }
+        
+        const response = await fetch(url, options);
         
         if (!response.ok) {
-            const error = await response.json();
+            const error = await response.json().catch(() => ({ error: 'Failed to generate keyfile' }));
             throw new Error(error.error || 'Failed to generate keyfile');
         }
         

@@ -353,6 +353,7 @@
             <button class="tab" onclick="switchTab('systems')">Systems</button>
             <button class="tab" onclick="switchTab('audio')">Audio Files</button>
             <button class="tab" onclick="switchTab('users')">User Keyring</button>
+            <button class="tab" onclick="switchTab('keyringSync')">Keyring Sync</button>
             <button class="tab" onclick="switchTab('settings')">Settings</button>
         </div>
 
@@ -404,6 +405,14 @@
             <div id="usersList"></div>
         </div>
 
+        <div id="keyringSyncTab" class="tab-content">
+            <h2>Keyring Sync Status</h2>
+            <p style="margin-bottom: 20px; color: #666;">
+                Track systems that have downloaded authorized_keys files and monitor their sync status.
+            </p>
+            <div id="keyringSyncList"></div>
+        </div>
+
         <div id="settingsTab" class="tab-content">
             <h2>GridBanner Configuration</h2>
             <div class="form-group">
@@ -443,6 +452,14 @@
                 <small style="color: #666; font-size: 0.85em; display: block; margin-top: 4px;">Start GridBanner in tray-only mode by default</small>
             </div>
             <button class="btn" onclick="saveGlobalSettings()" style="margin-bottom: 30px;">Save Global Settings</button>
+            
+            <h2 style="margin-top: 30px;">Keyfile Download Key</h2>
+            <div class="form-group">
+                <label for="keyfileDownloadKey">Keyfile Download Key</label>
+                <input type="text" id="keyfileDownloadKey" placeholder="Enter key for keyfile download scripts">
+                <small style="color: #666; font-size: 0.85em;">This key is used by automated scripts (e.g., update-authorized-keys.py) to download keyfiles. Separate from admin key.</small>
+            </div>
+            <button class="btn" onclick="saveKeyfileDownloadKey()" style="margin-bottom: 30px;">Save Keyfile Download Key</button>
             
             <h2 style="margin-top: 30px;">Default Contact Information</h2>
             <div class="form-group">

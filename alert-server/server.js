@@ -294,8 +294,10 @@ async function loadData() {
                 default_contact_name: '',
                 default_contact_phone: '',
                 default_contact_email: '',
-                default_contact_teams: ''
-            }
+                default_contact_teams: '',
+                keyfile_download_key: ''
+            },
+            keyfile_downloads: {} // Track downloads: { systemId: { lastDownload, version, userAgent } }
         };
     }
 }
@@ -1617,9 +1619,51 @@ app.delete('/api/keyring/:username/keys/:keyId',
 // Generate authorized_keys file
 // Query params: ?groups=groupId1,groupId2 (optional - filter by Azure groups)
 // If no groups specified, returns all users' keys
-app.get('/api/authorized-keys', authenticate, async (req, res) => {
+// Accepts either admin key, Azure AD token, or keyfile_download_key
+app.get('/api/authorized-keys', async (req, res) => {
     try {
+        // Check authentication - accept admin key, Azure AD token, or keyfile_download_key
+        const providedKey = req.query.key || req.headers['x-api-key'];
+        const authHeader = req.headers.authorization;
         const data = await loadData();
+        const keyfileDownloadKey = data.settings?.keyfile_download_key || '';
+        
+        let isAuthenticated = false;
+        let systemId = null;
+        let userAgent = req.headers['user-agent'] || 'Unknown';
+        
+        // Check admin key or Azure AD token (via authenticate middleware logic)
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            // Azure AD token - validate it
+            if (AZURE_AUTH_ENABLED) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        validateAzureToken(req, res, () => resolve());
+                    });
+                    isAuthenticated = true;
+                } catch (e) {
+                    // Token validation failed, continue to check other methods
+                }
+            }
+        }
+        
+        if (!isAuthenticated && providedKey) {
+            if (providedKey === config?.admin_key) {
+                isAuthenticated = true;
+            } else if (providedKey === keyfileDownloadKey && keyfileDownloadKey) {
+                isAuthenticated = true;
+                // Extract system ID from user agent if present
+                const uaMatch = userAgent.match(/GridBanner-KeyUpdater\/([^\/]+)\/([^\s]+)/);
+                if (uaMatch) {
+                    systemId = uaMatch[2]; // Extract system ID
+                }
+            }
+        }
+        
+        if (!isAuthenticated) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid API key or token' });
+        }
+        
         const users = data.users || {};
         
         let targetUsers = Object.keys(users);
@@ -1647,6 +1691,22 @@ app.get('/api/authorized-keys', authenticate, async (req, res) => {
             }
         }
         
+        // Track download if using keyfile_download_key
+        if (systemId && keyfileDownloadKey && providedKey === keyfileDownloadKey) {
+            if (!data.keyfile_downloads) {
+                data.keyfile_downloads = {};
+            }
+            const version = userAgent.match(/GridBanner-KeyUpdater\/([^\/]+)/)?.[1] || 'unknown';
+            data.keyfile_downloads[systemId] = {
+                lastDownload: new Date().toISOString(),
+                version: version,
+                userAgent: userAgent,
+                keyCount: authorizedKeys.length
+            };
+            await saveData(data);
+            console.log(`[${new Date().toISOString()}] Keyfile downloaded by system ${systemId} (version ${version})`);
+        }
+        
         res.setHeader('Content-Type', 'text/plain');
         res.send(authorizedKeys.join('\n') + '\n');
     } catch (error) {
@@ -1656,14 +1716,34 @@ app.get('/api/authorized-keys', authenticate, async (req, res) => {
 
 // Generate authorized_keys file by group name (for automation/wget)
 // Endpoint: /api/authorized-keys/group/:groupName
-// Optional query param: ?key=adminKey (or use X-API-Key header)
+// Optional query param: ?key=adminKey or keyfile_download_key (or use X-API-Key header)
 // Example: wget http://server:3000/api/authorized-keys/group/Developers?key=adminkey
 app.get('/api/authorized-keys/group/:groupName', async (req, res) => {
     try {
-        // Check authentication (admin key in query param or header)
+        // Check authentication (admin key or keyfile_download_key in query param or header)
         const providedKey = req.query.key || req.headers['x-api-key'];
-        if (!providedKey || providedKey !== config?.admin_key) {
-            return res.status(401).json({ error: 'Unauthorized. Provide admin key via ?key= parameter or X-API-Key header.' });
+        const data = await loadData();
+        const keyfileDownloadKey = data.settings?.keyfile_download_key || '';
+        
+        let isAuthenticated = false;
+        let systemId = null;
+        let userAgent = req.headers['user-agent'] || 'Unknown';
+        
+        if (providedKey) {
+            if (providedKey === config?.admin_key) {
+                isAuthenticated = true;
+            } else if (providedKey === keyfileDownloadKey && keyfileDownloadKey) {
+                isAuthenticated = true;
+                // Extract system ID from user agent if present
+                const uaMatch = userAgent.match(/GridBanner-KeyUpdater\/([^\/]+)\/([^\s]+)/);
+                if (uaMatch) {
+                    systemId = uaMatch[2]; // Extract system ID
+                }
+            }
+        }
+        
+        if (!isAuthenticated) {
+            return res.status(401).json({ error: 'Unauthorized. Provide admin key or keyfile download key via ?key= parameter or X-API-Key header.' });
         }
         
         const groupName = decodeURIComponent(req.params.groupName);
@@ -1685,8 +1765,7 @@ app.get('/api/authorized-keys/group/:groupName', async (req, res) => {
             return res.send('# No users found in group\n');
         }
         
-        // Get keys for users in the group
-        const data = await loadData();
+        // Get keys for users in the group (data already loaded above)
         const users = data.users || {};
         
         const authorizedKeys = [];
@@ -1703,6 +1782,23 @@ app.get('/api/authorized-keys/group/:groupName', async (req, res) => {
         }
         
         console.log(`Generated authorized_keys with ${authorizedKeys.length} keys for ${usersInGroup.length} users in group "${groupName}"`);
+        
+        // Track download if using keyfile_download_key
+        if (systemId && keyfileDownloadKey && providedKey === keyfileDownloadKey) {
+            if (!data.keyfile_downloads) {
+                data.keyfile_downloads = {};
+            }
+            const version = userAgent.match(/GridBanner-KeyUpdater\/([^\/]+)/)?.[1] || 'unknown';
+            data.keyfile_downloads[systemId] = {
+                lastDownload: new Date().toISOString(),
+                version: version,
+                userAgent: userAgent,
+                keyCount: authorizedKeys.length,
+                groupName: groupName
+            };
+            await saveData(data);
+            console.log(`[${new Date().toISOString()}] Keyfile downloaded by system ${systemId} (version ${version}) for group "${groupName}"`);
+        }
         
         res.setHeader('Content-Type', 'text/plain');
         res.setHeader('Content-Disposition', `inline; filename="authorized_keys_${groupName.replace(/[^a-zA-Z0-9]/g, '_')}.txt"`);
@@ -1810,6 +1906,94 @@ app.post('/api/admin/global-settings', authenticate, async (req, res) => {
             success: true, 
             global_settings: validSettings,
             message: 'Global settings updated successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get keyfile download key
+app.get('/api/admin/keyfile-download-key', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const keyfileDownloadKey = data.settings?.keyfile_download_key || '';
+        res.json({ keyfile_download_key: keyfileDownloadKey });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Set keyfile download key
+app.post('/api/admin/keyfile-download-key', authenticate, async (req, res) => {
+    try {
+        const { keyfile_download_key } = req.body;
+        
+        if (!keyfile_download_key || typeof keyfile_download_key !== 'string') {
+            return res.status(400).json({ error: 'keyfile_download_key is required and must be a string' });
+        }
+        
+        const data = await loadData();
+        if (!data.settings) {
+            data.settings = {};
+        }
+        data.settings.keyfile_download_key = keyfile_download_key;
+        await saveData(data);
+        
+        console.log('Keyfile download key updated');
+        res.json({ 
+            success: true, 
+            keyfile_download_key: keyfile_download_key,
+            message: 'Keyfile download key updated successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get keyfile download tracking data
+app.get('/api/admin/keyfile-downloads', authenticate, async (req, res) => {
+    try {
+        const data = await loadData();
+        const downloads = data.keyfile_downloads || {};
+        
+        // Calculate latest keyfile version (based on most recent download)
+        let latestVersion = 'unknown';
+        let latestDownloadTime = null;
+        for (const [systemId, info] of Object.entries(downloads)) {
+            if (info.lastDownload) {
+                const downloadTime = new Date(info.lastDownload).getTime();
+                if (!latestDownloadTime || downloadTime > latestDownloadTime) {
+                    latestDownloadTime = downloadTime;
+                    latestVersion = info.version || 'unknown';
+                }
+            }
+        }
+        
+        // Format downloads for display
+        const formattedDownloads = Object.entries(downloads).map(([systemId, info]) => {
+            const lastDownload = info.lastDownload ? new Date(info.lastDownload) : null;
+            const isLatest = info.version === latestVersion;
+            return {
+                systemId: systemId,
+                lastDownload: lastDownload ? lastDownload.toISOString() : null,
+                lastDownloadFormatted: lastDownload ? lastDownload.toLocaleString() : 'Never',
+                version: info.version || 'unknown',
+                isLatest: isLatest,
+                keyCount: info.keyCount || 0,
+                groupName: info.groupName || 'all',
+                userAgent: info.userAgent || 'Unknown'
+            };
+        }).sort((a, b) => {
+            // Sort by last download time (most recent first)
+            const timeA = a.lastDownload ? new Date(a.lastDownload).getTime() : 0;
+            const timeB = b.lastDownload ? new Date(b.lastDownload).getTime() : 0;
+            return timeB - timeA;
+        });
+        
+        res.json({
+            downloads: formattedDownloads,
+            latestVersion: latestVersion,
+            totalSystems: formattedDownloads.length
         });
     } catch (error) {
         res.status(500).json({ error: error.message });

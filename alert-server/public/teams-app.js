@@ -203,7 +203,8 @@ async function loadAlerts() {
         }
 
         const level = alert.level || 'routine';
-        const levelClass = level === 'super_critical' ? 'critical' : 
+        const levelClass = level === 'system_lockdown' ? 'critical' :
+                          level === 'super_critical' ? 'critical' : 
                           level === 'critical' ? 'critical' : 
                           level === 'urgent' ? 'urgent' : 'routine';
 
@@ -260,6 +261,7 @@ function showNewAlertModal() {
                     <option value="urgent">Urgent</option>
                     <option value="critical">Critical</option>
                     <option value="super_critical">Super Critical</option>
+                    <option value="system_lockdown">System Lockdown</option>
                 </select>
             </div>
             <div class="form-group">
@@ -457,6 +459,7 @@ function showNewTemplateModal(templateId = null) {
                     <option value="urgent">Urgent</option>
                     <option value="critical">Critical</option>
                     <option value="super_critical">Super Critical</option>
+                    <option value="system_lockdown">System Lockdown</option>
                 </select>
             </div>
             <div class="form-group">

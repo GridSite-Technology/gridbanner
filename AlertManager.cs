@@ -376,6 +376,9 @@ namespace GridBanner
                 "supercritical" => AlertLevel.SuperCritical,
                 "super_critical" => AlertLevel.SuperCritical,
                 "super-critical" => AlertLevel.SuperCritical,
+                "systemlockdown" => AlertLevel.SystemLockdown,
+                "system_lockdown" => AlertLevel.SystemLockdown,
+                "system-lockdown" => AlertLevel.SystemLockdown,
                 _ => (AlertLevel?)null
             };
 

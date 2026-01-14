@@ -1,0 +1,41 @@
+<Window x:Class="GridBanner.SystemLockdownAlertWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="True"
+        Background="{Binding BackgroundBrush}">
+    <!-- Solid background, no flashing animations -->
+    <Grid Margin="40">
+        <!-- Solid border (no pulsing) -->
+        <Border BorderBrush="{Binding ForegroundBrush}"
+                BorderThickness="10"
+                CornerRadius="12"/>
+
+        <!-- Inner content padding keeps text safely inside the border -->
+        <Grid Margin="30">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0">
+                <TextBlock
+                           Text="{Binding Header}"
+                           Foreground="{Binding ForegroundBrush}"
+                           FontSize="64"
+                           FontWeight="Bold"
+                           TextWrapping="Wrap"/>
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" Margin="0,30,0,30" VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding Message}"
+                           Foreground="{Binding ForegroundBrush}"
+                           FontSize="32"
+                           TextWrapping="Wrap"/>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
