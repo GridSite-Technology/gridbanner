@@ -25,6 +25,9 @@ namespace GridBanner
         private SystemLockdownKeyboardHook? _lockdownKeyboardHook;
         private string? _closedSystemLockdownSignature;
         private System.Windows.Threading.DispatcherTimer? _lockdownFocusMonitor;
+        private bool _systemLockdownWindowsInitialized = false; // Track if windows have been shown at least once
+        private SystemLockdownAlertWindow? _primarySystemLockdownWindow = null; // Track primary monitor window
+        private DateTime? _focusMonitoringStartTime = null; // Track when focus monitoring started (grace period)
         private readonly AlertSoundPlayer _alertSoundPlayer = new();
         private readonly KeyringManager _keyringManager = new();
         private AzureAuthManager? _azureAuthManager;
@@ -1278,6 +1281,7 @@ namespace GridBanner
             };
             _lockdownFocusMonitor.Tick += LockdownFocusMonitor_Tick;
             _lockdownFocusMonitor.Start();
+            _focusMonitoringStartTime = DateTime.Now; // Track when monitoring started
             LogMessage("SystemLockdown focus monitoring started");
         }
 
@@ -1288,6 +1292,7 @@ namespace GridBanner
                 _lockdownFocusMonitor.Stop();
                 _lockdownFocusMonitor.Tick -= LockdownFocusMonitor_Tick;
                 _lockdownFocusMonitor = null;
+                _focusMonitoringStartTime = null; // Clear grace period
                 LogMessage("SystemLockdown focus monitoring stopped");
             }
         }
@@ -1306,6 +1311,20 @@ namespace GridBanner
                     // No active lockdown - stop monitoring to prevent false positives
                     StopLockdownFocusMonitoring();
                     return;
+                }
+
+                // Grace period: Don't lock for first 3-5 seconds after monitoring starts (allows system to stabilize)
+                // If grace period was extended (negative start time), use 5 seconds
+                if (_focusMonitoringStartTime.HasValue)
+                {
+                    var elapsed = DateTime.Now - _focusMonitoringStartTime.Value;
+                    var gracePeriodSeconds = _focusMonitoringStartTime.Value < DateTime.Now.AddSeconds(-1) ? 5.0 : 3.0; // Extended if started in past
+                    
+                    if (elapsed.TotalSeconds < gracePeriodSeconds)
+                    {
+                        // Still in grace period - don't check yet
+                        return;
+                    }
                 }
 
                 // Collect handles of allowed windows (SystemLockdown windows and CommandWindow)
@@ -1344,6 +1363,13 @@ namespace GridBanner
                         }
                     }
                     catch { }
+                }
+
+                // Only check if we have at least one visible SystemLockdown window
+                if (allowedHandles.Count == 0)
+                {
+                    // No visible windows yet - don't check (might be initializing)
+                    return;
                 }
 
                 // Check if foreground window is allowed
@@ -1634,25 +1660,101 @@ namespace GridBanner
                     initTimer.Start();
                     
                     // Start focus monitoring AFTER windows are shown, focused, and given time to render
-                    // Use a delay to ensure all 9 monitors have their windows fully visible AND primary has focus
+                    // Normal startup delay (unlock restoration is handled separately)
                     var delayTimer = new System.Windows.Threading.DispatcherTimer
                     {
-                        Interval = TimeSpan.FromSeconds(2.0) // Give more time for all screens to render and focus to settle
+                        Interval = TimeSpan.FromSeconds(2.0) // Normal delay for initial startup
                     };
                     delayTimer.Tick += (sender, e) =>
                     {
                         delayTimer.Stop();
                         
-                        // Verify primary window is visible and focused before starting monitoring
+                        // Verify primary window is visible before starting monitoring
                         if (_primarySystemLockdownWindow != null && _primarySystemLockdownWindow.IsVisible)
                         {
                             try
                             {
-                                // Ensure primary window still has focus
-                                _primarySystemLockdownWindow.Activate();
-                                _primarySystemLockdownWindow.Focus();
-                                LogMessage("Starting SystemLockdown focus monitoring from primary monitor");
-                                StartLockdownFocusMonitoring();
+                                // CRITICAL: Focus the primary window multiple times to ensure it gets focus
+                                // This must happen at the END of the initialization sequence
+                                for (int i = 0; i < 3; i++)
+                                {
+                                    _primarySystemLockdownWindow.Activate();
+                                    _primarySystemLockdownWindow.Focus();
+                                    System.Windows.Forms.Application.DoEvents(); // Process window messages
+                                    System.Threading.Thread.Sleep(150); // Small delay between attempts
+                                }
+                                
+                                // Wait a bit more to ensure focus is fully established
+                                var focusWaitTimer = new System.Windows.Threading.DispatcherTimer
+                                {
+                                    Interval = TimeSpan.FromMilliseconds(500)
+                                };
+                                focusWaitTimer.Tick += (s, args) =>
+                                {
+                                    focusWaitTimer.Stop();
+                                    
+                                    // One final focus attempt right before starting monitoring
+                                    try
+                                    {
+                                        _primarySystemLockdownWindow.Activate();
+                                        _primarySystemLockdownWindow.Focus();
+                                        
+                                        // CRITICAL: Verify the primary window actually has focus before starting monitoring
+                                        var primaryHandle = new System.Windows.Interop.WindowInteropHelper(_primarySystemLockdownWindow).Handle;
+                                        var foregroundWindow = SystemLockdownFocusMonitor.GetForegroundWindow();
+                                        
+                                        if (foregroundWindow == primaryHandle)
+                                        {
+                                            LogMessage("Primary window has focus - starting SystemLockdown focus monitoring");
+                                            _focusMonitoringStartTime = DateTime.Now; // Set grace period start
+                                            StartLockdownFocusMonitoring();
+                                        }
+                                        else
+                                        {
+                                            LogMessage($"Primary window does not have focus (foreground: {foregroundWindow}, primary: {primaryHandle}) - retrying focus");
+                                            
+                                            // Try focusing one more time and wait
+                                            var retryTimer = new System.Windows.Threading.DispatcherTimer
+                                            {
+                                                Interval = TimeSpan.FromMilliseconds(500)
+                                            };
+                                            retryTimer.Tick += (s2, args2) =>
+                                            {
+                                                retryTimer.Stop();
+                                                
+                                                _primarySystemLockdownWindow.Activate();
+                                                _primarySystemLockdownWindow.Focus();
+                                                
+                                                // Check again
+                                                var newForeground = SystemLockdownFocusMonitor.GetForegroundWindow();
+                                                var newPrimaryHandle = new System.Windows.Interop.WindowInteropHelper(_primarySystemLockdownWindow).Handle;
+                                                
+                                                if (newForeground == newPrimaryHandle)
+                                                {
+                                                    LogMessage("Primary window now has focus - starting SystemLockdown focus monitoring");
+                                                    _focusMonitoringStartTime = DateTime.Now;
+                                                    StartLockdownFocusMonitoring();
+                                                }
+                                                else
+                                                {
+                                                    LogMessage($"Primary window still doesn't have focus - starting monitoring with extended grace period anyway");
+                                                    // Start with extended grace period (5 seconds instead of 3)
+                                                    _focusMonitoringStartTime = DateTime.Now.AddSeconds(-2); // Start grace period 2 seconds ago (effectively 5 seconds total)
+                                                    StartLockdownFocusMonitoring();
+                                                }
+                                            };
+                                            retryTimer.Start();
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        LogMessage($"Error in final focus attempt: {ex.Message}");
+                                        // Start monitoring with extended grace period
+                                        _focusMonitoringStartTime = DateTime.Now.AddSeconds(-2);
+                                        StartLockdownFocusMonitoring();
+                                    }
+                                };
+                                focusWaitTimer.Start();
                             }
                             catch (Exception ex)
                             {
@@ -1864,17 +1966,120 @@ namespace GridBanner
                 else if (e.Reason == SessionSwitchReason.SessionUnlock)
                 {
                     _isSessionLocked = false;
-                    LogMessage("Session unlocked: recreating banners.");
-                    MainWindow_Loaded(this, new RoutedEventArgs());
+                    LogMessage("Session unlocked: starting restoration sequence.");
                     
                     // Restore alert if it was active before lock
-                    if (_activeAlert != null)
+                    if (_activeAlert != null && _activeAlert.Level == AlertLevel.SystemLockdown)
                     {
-                        LogMessage($"Restoring active alert after unlock: {_activeAlert.Summary}");
+                        LogMessage($"Restoring SystemLockdown alert after unlock: {_activeAlert.Summary}");
+                        
+                        // Step 1: IMMEDIATELY show SystemLockdown windows on all monitors (don't wait for banners)
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            ApplyAlert(_activeAlert);
+                            // Reset initialization state for fresh start
+                            _systemLockdownWindowsInitialized = false;
+                            
+                            // Ensure windows exist
+                            if (_systemLockdownWindows.Count == 0)
+                            {
+                                CreateOrRefreshSystemLockdownWindows();
+                            }
+                            
+                            // Show all SystemLockdown windows immediately
+                            var bgBrush = new SolidColorBrush(ParseColor(_activeAlert.BackgroundColor));
+                            var fgBrush = new SolidColorBrush(ParseColor(_activeAlert.ForegroundColor));
+                            
+                            foreach (var w in _systemLockdownWindows)
+                            {
+                                try
+                                {
+                                    w.Apply(_activeAlert, bgBrush, fgBrush);
+                                    if (!w.IsVisible)
+                                    {
+                                        w.Show();
+                                    }
+                                    w.Topmost = true;
+                                }
+                                catch { }
+                            }
+                            
+                            HideAllAlertWindows();
+                            LogMessage("SystemLockdown windows shown immediately after unlock");
+                            
+                            // Step 2: Now load banners (if not in tray-only mode)
+                            if (!_trayOnlyMode)
+                            {
+                                MainWindow_Loaded(this, new RoutedEventArgs());
+                            }
+                            
+                            // Step 3: After banners load, focus primary and start monitoring
+                            var bannerWaitTimer = new System.Windows.Threading.DispatcherTimer
+                            {
+                                Interval = TimeSpan.FromSeconds(3.0) // Wait for all 9 banners to load
+                            };
+                            bannerWaitTimer.Tick += (sender, e) =>
+                            {
+                                bannerWaitTimer.Stop();
+                                LogMessage("Banners loaded, focusing primary window and starting monitoring");
+                                
+                                // Focus primary window
+                                if (_primarySystemLockdownWindow != null)
+                                {
+                                    try
+                                    {
+                                        _primarySystemLockdownWindow.Activate();
+                                        _primarySystemLockdownWindow.Focus();
+                                        LogMessage("Focused primary SystemLockdown window after unlock");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        LogMessage($"Error focusing primary window: {ex.Message}");
+                                    }
+                                }
+                                
+                                // Mark windows as initialized
+                                var initTimer = new System.Windows.Threading.DispatcherTimer
+                                {
+                                    Interval = TimeSpan.FromMilliseconds(500)
+                                };
+                                initTimer.Tick += (s, args) =>
+                                {
+                                    initTimer.Stop();
+                                    _systemLockdownWindowsInitialized = true;
+                                    LogMessage("SystemLockdown windows marked as initialized after unlock");
+                                };
+                                initTimer.Start();
+                                
+                                // Start focus monitoring after additional delay
+                                var monitoringTimer = new System.Windows.Threading.DispatcherTimer
+                                {
+                                    Interval = TimeSpan.FromSeconds(2.0) // Additional delay for system to stabilize
+                                };
+                                monitoringTimer.Tick += (s, args) =>
+                                {
+                                    monitoringTimer.Stop();
+                                    LogMessage("Starting SystemLockdown focus monitoring after unlock");
+                                    _focusMonitoringStartTime = DateTime.Now; // Set grace period start
+                                    StartLockdownFocusMonitoring();
+                                };
+                                monitoringTimer.Start();
+                            };
+                            bannerWaitTimer.Start();
                         }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    }
+                    else
+                    {
+                        // For non-SystemLockdown alerts, just reload normally
+                        LogMessage("Session unlocked: recreating banners.");
+                        MainWindow_Loaded(this, new RoutedEventArgs());
+                        
+                        if (_activeAlert != null)
+                        {
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                ApplyAlert(_activeAlert);
+                            }), System.Windows.Threading.DispatcherPriority.Loaded);
+                        }
                     }
                 }
             }));
